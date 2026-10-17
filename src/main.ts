@@ -45,6 +45,9 @@ let calibration: { rmsDb: number; onsetDelta: number } | null = null;
 let lastCheckLatency: number | null = null;
 let ctxState = '—';
 let ignoredAttacks = 0;
+/** Отброшенные атаки — только для отчёта, в видимый лог не попадают. */
+const dropped: string[] = [];
+const DROPPED_MAX = 60;
 
 // --- UI ---
 const log = new EventLog($('#log'));
@@ -138,6 +141,9 @@ function reportText(): string {
     ...infoRows().map(([k, v]) => `${k}: ${v}`),
     `Параметры: ${JSON.stringify(params)}`,
     `Режим: ${mode}${expected.size ? `, ожидаем ${[...expected].map(midiToName).join(' ')}` : ''}`,
+    '',
+    `Отброшенные атаки (новые сверху, ${dropped.length}):`,
+    ...dropped,
     '',
     `Лог (новые сверху, ${log.size} событий):`,
     log.toText(),
@@ -246,7 +252,10 @@ readout.onClear = () => {
   sendExpected();
 };
 
-$('#btn-log-clear').addEventListener('click', () => log.clear());
+$('#btn-log-clear').addEventListener('click', () => {
+  log.clear();
+  dropped.length = 0;
+});
 
 btnDebug.addEventListener('click', () => {
   const collapsed = debug.root.classList.toggle('collapsed');
@@ -304,6 +313,12 @@ function onEvent(ev: AnalyzerEvent): void {
       if (!debug.root.classList.contains('collapsed')) refreshInfo();
       break;
     }
+    case 'dropped':
+      dropped.unshift(
+        `[${ev.t.toFixed(3)}s] ${ev.reason} · ${attackText(ev.attack)}${ev.seen ? ` · видел: ${ev.seen}` : ''}`,
+      );
+      if (dropped.length > DROPPED_MAX) dropped.length = DROPPED_MAX;
+      break;
     case 'calibrated':
       calibration = { rmsDb: ev.rmsDb, onsetDelta: ev.onsetDelta };
       params = { ...params, onsetDelta: ev.onsetDelta };

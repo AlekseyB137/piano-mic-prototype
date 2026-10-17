@@ -67,6 +67,16 @@ export interface NoteEvent {
   attack: AttackInfo;
 }
 
+/** Атака, не ставшая нотой — для диагностики (в отчёт, не в видимый лог). */
+export interface DroppedEvent {
+  type: 'dropped';
+  t: number;
+  reason: string;
+  attack: AttackInfo;
+  /** Что видел детектор высоты после удара, по кадрам: «B5+14», «·» — нет высоты. */
+  seen: string;
+}
+
 export interface CheckEvent extends CheckResult {
   type: 'check';
   attack: AttackInfo;
@@ -81,4 +91,4 @@ export interface CalibratedEvent {
   noisePreview: Float32Array;
 }
 
-export type AnalyzerEvent = InfoEvent | FrameEvent | OnsetEvent | NoteEvent | CheckEvent | CalibratedEvent;
+export type AnalyzerEvent = InfoEvent | FrameEvent | OnsetEvent | NoteEvent | CheckEvent | CalibratedEvent | DroppedEvent;

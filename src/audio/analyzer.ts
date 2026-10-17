@@ -4,7 +4,7 @@ import { SpectralFluxOnset } from './onset';
 import { NoiseCalibrator } from './noise';
 import { countTunedPeaks, evaluateNotes, partialSnrDb, type NoteEvidence, type SpectrumContext } from './chord-check';
 import { CheckSession } from './check-session';
-import { expectedStretchCents, freqToMidiFloat } from './notes';
+import { expectedStretchCents, freqToMidiFloat, midiToName } from './notes';
 import { DEFAULT_PARAMS, type AnalyzerParams } from './params';
 import type { AnalyzerEvent, AttackInfo, CheckEvent, PitchInfo } from './messages';
 
@@ -107,6 +107,8 @@ export class Analyzer {
   private attack: AttackInfo = { flux: 0, rmsDb: -120 };
   private attackConfirmed = false;
   private track: number[] = []; // дробные MIDI последних кадров после удара
+  private seen: string[] = []; // диагностика: что видел детектор после удара
+  private lastReject = '';
   // «Фортепианность» удара, открывшего окно проверки
   private sessionPiano = false;
   private sessionAttack: AttackInfo = { flux: 0, rmsDb: -120 };
@@ -361,18 +363,28 @@ export class Analyzer {
     const prev = this.session.onOnset(t, this.expected, this.hasPrevBig ? this.prevBigMags : null, this.params.checkMinHits);
     if (prev) this.emitCheck(prev, events);
     if (this.session.isActive && this.session.startTime === t) {
-      this.dropPendingCheck(); // недоподтверждённый прошлый вердикт — уже не актуален
+      this.dropPendingCheck(events); // недоподтверждённый прошлый вердикт — уже не актуален
       this.sessionRef = this.session.reference;
       this.sessionPiano = false;
       this.sessionAttack = { flux, rmsDb };
     }
 
-    if (this.restrikePending && !this.attackConfirmed) this.ignoredAttacks++; // прошлая атака так и не стала нотой
+    if (this.restrikePending && !this.attackConfirmed) {
+      // Прошлая атака так и не стала нотой — её перебил новый удар
+      this.drop(this.onsetAt, `перебита новой атакой через ${Math.round((t - this.onsetAt) * 1000)} мс${this.lastReject ? '; ' + this.lastReject : ''}`, events);
+    }
     this.restrikePending = true;
     this.attackConfirmed = false;
     this.onsetAt = t;
     this.attack = { flux, rmsDb };
     this.track = [];
+    this.seen = [];
+    this.lastReject = '';
+  }
+
+  private drop(t: number, reason: string, events: AnalyzerEvent[], attack: AttackInfo = this.attack): void {
+    this.ignoredAttacks++;
+    events.push({ type: 'dropped', t, reason, attack, seen: this.seen.slice(-10).join(' ') });
   }
 
   /**
@@ -381,7 +393,7 @@ export class Analyzer {
    * а затем молча отбрасываем — голос, хлопки и стук не дают ни «засчитано», ни «нет».
    */
   private emitCheck(res: Omit<CheckEvent, 'type' | 'attack'>, events: AnalyzerEvent[]): void {
-    this.dropPendingCheck();
+    this.dropPendingCheck(events);
     if (this.sessionPiano) {
       events.push({ type: 'check', ...res, attack: this.sessionAttack });
       return;
@@ -395,14 +407,15 @@ export class Analyzer {
     if (this.sessionPiano) {
       this.pendingCheck = null;
       events.push({ type: 'check', ...pc.res, attack: this.sessionAttack });
-    } else if (t > pc.deadline) this.dropPendingCheck();
+    } else if (t > pc.deadline) this.dropPendingCheck(events);
   }
 
-  private dropPendingCheck(): void {
-    if (this.pendingCheck) {
-      this.pendingCheck = null;
-      this.ignoredAttacks++;
-    }
+  private dropPendingCheck(events?: AnalyzerEvent[]): void {
+    const pc = this.pendingCheck;
+    if (!pc) return;
+    this.pendingCheck = null;
+    if (events) this.drop(pc.res.onsetTime, `проверка: удар не подтверждён (${pc.res.allPassed ? 'был бы ✓' : 'был бы ✗'})`, events, this.sessionAttack);
+    else this.ignoredAttacks++;
   }
 
   /**
@@ -410,6 +423,11 @@ export class Analyzer {
    * У слога речи после щелчка согласной идёт гласная, которая ГРОМЧЕ щелчка.
    */
   private looksStruck(onsetT: number, now: number): boolean {
+    return this.envelopeRiseDb(onsetT, now) <= ENVELOPE_RISE_DB;
+  }
+
+  /** Насколько громкость после удара превысила громкость самого удара, дБ (+∞ — нет данных). */
+  private envelopeRiseDb(onsetT: number, now: number): number {
     let early = -Infinity, late = -Infinity;
     for (let i = 0; i < ENV_HISTORY; i++) {
       const tt = this.envT[i];
@@ -417,7 +435,8 @@ export class Analyzer {
       if (tt <= onsetT + 0.025) early = Math.max(early, this.envDb[i]);
       else late = Math.max(late, this.envDb[i]);
     }
-    return early > -Infinity && late <= early + ENVELOPE_RISE_DB;
+    if (early === -Infinity) return Infinity;
+    return late === -Infinity ? 0 : late - early;
   }
 
   /**
@@ -431,7 +450,12 @@ export class Analyzer {
     const p = this.params;
     if (!pitch) {
       this.track = [];
+      if (this.restrikePending && t - this.onsetAt >= windowSec / 2) this.seen.push('·');
       if (++this.silentFrames >= 5) this.stableMidi = null;
+      if (this.restrikePending && t - this.onsetAt > NOTE_AFTER_ONSET_SEC) {
+        this.restrikePending = false;
+        this.drop(this.onsetAt, this.lastReject || 'нет устойчивой высоты', events);
+      }
       return;
     }
     this.silentFrames = 0;
@@ -443,29 +467,42 @@ export class Analyzer {
     if (!this.restrikePending) return;
     if (t - this.onsetAt > NOTE_AFTER_ONSET_SEC) {
       this.restrikePending = false;
-      this.ignoredAttacks++;
+      this.drop(this.onsetAt, this.lastReject || (this.seen.length ? 'мало кадров с высотой' : 'нет высоты'), events);
       return;
     }
     // Сразу после удара окно в основном содержит ПРЕДЫДУЩИЙ звук — пропускаем
     if (t - this.onsetAt < windowSec / 2) return;
 
     const mf = freqToMidiFloat(pitch.freq);
+    const c = Math.round((mf - Math.round(mf)) * 100);
+    this.seen.push(`${midiToName(Math.round(mf))}${c >= 0 ? '+' : ''}${c}`);
     this.track.push(mf);
     if (this.track.length > CONFIRM_FRAMES) this.track.shift();
     if (this.track.length < CONFIRM_FRAMES) return;
 
     const midis = this.track.map(Math.round);
-    if (!midis.every((m) => m === midis[0])) return;
+    if (!midis.every((m) => m === midis[0])) {
+      this.lastReject = 'высота прыгает между нотами';
+      return;
+    }
     const drift = (Math.max(...this.track) - Math.min(...this.track)) * 100;
     const mean = this.track.reduce((a, b) => a + b, 0) / this.track.length;
     const detune = (mean - Math.round(mean)) * 100;
     // Отклонение считаем от ожидаемой растяжки регистра, а не от «идеального» строя
     const offTune = detune - expectedStretchCents(midis[0]);
-    if (drift > p.maxDriftCents || Math.abs(offTune) > p.maxDetuneCents) return;
-    if (!this.looksStruck(this.onsetAt, t)) {
+    if (drift > p.maxDriftCents) {
+      this.lastReject = `дрейф ${Math.round(drift)} ц > ${p.maxDriftCents}`;
+      return;
+    }
+    if (Math.abs(offTune) > p.maxDetuneCents) {
+      this.lastReject = `мимо строя: ${Math.round(detune)} ц (ожидалось ${Math.round(expectedStretchCents(midis[0]))}±${p.maxDetuneCents})`;
+      return;
+    }
+    const rise = this.envelopeRiseDb(this.onsetAt, t);
+    if (rise > ENVELOPE_RISE_DB) {
       // Высота устойчива, но громкость после «атаки» выросла — это слог, а не удар
       this.restrikePending = false;
-      this.ignoredAttacks++;
+      this.drop(this.onsetAt, `громкость выросла после атаки: +${Number.isFinite(rise) ? rise.toFixed(1) : '?'} дБ`, events);
       return;
     }
 
