@@ -67,6 +67,7 @@ export class DebugPanel {
   onResetParams: () => void = () => {};
   onFftSize: (n: number) => void = () => {};
   onCopy: () => void = () => {};
+  onShare: () => void = () => {};
 
   constructor(root: HTMLElement, params: AnalyzerParams, fftSize: number) {
     this.root = root;
@@ -84,7 +85,10 @@ export class DebugPanel {
       <section>
         <h3>Устройство</h3>
         <dl class="info mono"></dl>
-        <button class="small copy">Скопировать отчёт и лог</button>
+        <div class="buttons">
+          <button class="small share">Поделиться отчётом</button>
+          <button class="small copy">Скопировать</button>
+        </div>
       </section>
       <section>
         <h3>Пороги</h3>
@@ -101,6 +105,7 @@ export class DebugPanel {
     this.liveText = root.querySelector('.live')!;
     this.infoTable = root.querySelector('.info')!;
     root.querySelector('.copy')!.addEventListener('click', () => this.onCopy());
+    root.querySelector('.share')!.addEventListener('click', () => this.onShare());
     root.querySelector('.reset')!.addEventListener('click', () => this.onResetParams());
     const sel = root.querySelector<HTMLSelectElement>('.fft')!;
     sel.value = String(fftSize);

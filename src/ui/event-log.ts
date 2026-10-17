@@ -1,4 +1,4 @@
-export type LogKind = 'info' | 'onset' | 'note' | 'pass' | 'fail' | 'error';
+export type LogKind = 'info' | 'onset' | 'note' | 'ignored' | 'pass' | 'fail' | 'error';
 
 interface Entry {
   wall: string;
@@ -7,7 +7,7 @@ interface Entry {
   kind: LogKind;
 }
 
-const MAX = 20;
+const MAX = 200;
 
 function wallTime(): string {
   const d = new Date();
@@ -15,7 +15,7 @@ function wallTime(): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
 }
 
-/** Лог последних 20 событий распознавания. */
+/** Лог последних 200 событий распознавания. */
 export class EventLog {
   private readonly entries: Entry[] = [];
   private readonly list: HTMLElement;
@@ -33,6 +33,10 @@ export class EventLog {
   clear(): void {
     this.entries.length = 0;
     this.render();
+  }
+
+  get size(): number {
+    return this.entries.length;
   }
 
   toText(): string {

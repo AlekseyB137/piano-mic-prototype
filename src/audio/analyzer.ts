@@ -27,6 +27,12 @@ export interface AnalyzerOptions {
 
 const HOP = 512;
 const SMALL_FFT = 2048;
+/** Длинное окно YIN для басов: в 2048 сэмплах у A2 помещается всего ~2 периода. */
+const LONG_YIN = 4096;
+/** Ниже этой частоты доверяем длинному окну. */
+const LOW_PITCH_HZ = 160;
+/** Струна не меняет высоту без удара: ноту фиксируем только в этом окне после атаки. */
+const NOTE_AFTER_ONSET_SEC = 0.3;
 /** Фон по умолчанию до калибровки. */
 const DEFAULT_NOISE_DB = -70;
 const UNCALIBRATED_FLOOR = 1e-4; // ≈ −80 дБFS на бин
@@ -69,6 +75,8 @@ export class Analyzer {
   private hasPrevBig = false;
 
   private readonly yin: YinDetector;
+  private readonly yinLong: YinDetector;
+  private readonly longBuf = new Float32Array(LONG_YIN);
   private readonly onset: SpectralFluxOnset;
   private readonly calib = new NoiseCalibrator();
   private readonly session = new CheckSession();
@@ -84,6 +92,9 @@ export class Analyzer {
   private stableMidi: number | null = null;
   private silentFrames = 0;
   private restrikePending = false;
+  private onsetAt = -Infinity;
+  private lastIgnoredMidi: number | null = null;
+  private lastIgnoredAt = -Infinity;
 
   private lastFlux = 0;
   private lastThreshold = 0;
@@ -108,6 +119,7 @@ export class Analyzer {
     this.bigMags = new Float32Array(this.bigN / 2 + 1);
     this.prevBigMags = new Float32Array(this.bigN / 2 + 1);
     this.yin = new YinDetector(sampleRate, SMALL_FFT, 60, 2200);
+    this.yinLong = new YinDetector(sampleRate, LONG_YIN, 40, 400);
 
     // Поток считаем в полосе 30 Гц – 6 кГц: там основная энергия удара по струне
     const binHz = sampleRate / SMALL_FFT;
@@ -207,8 +219,9 @@ export class Analyzer {
     if (this.calib.active) this.calib.addHop(rms, o.flux, HOP / this.sampleRate);
 
     if (o.onsetTime !== null && !this.calib.active) {
-      events.push({ type: 'onset', t: o.onsetTime, flux: o.onsetFlux, threshold: o.threshold });
+      events.push({ type: 'onset', t: o.onsetTime, flux: o.onsetFlux, threshold: o.threshold, rmsDb });
       this.restrikePending = true;
+      this.onsetAt = o.onsetTime;
       // Опорный спектр — последний большой FFT ДО удара
       const prev = this.session.onOnset(o.onsetTime, this.expected, this.hasPrevBig ? this.prevBigMags : null, p.checkMinHits);
       if (prev) events.push({ type: 'check', ...prev });
@@ -218,15 +231,30 @@ export class Analyzer {
 
     // --- Высота (каждые 2 hop) ---
     let pitch: PitchInfo | null = null;
+    let pitchWindow = SMALL_FFT;
     if (gateOpen) {
-      const est = this.yin.detect(this.smallBuf, p.yinThreshold);
+      let est = this.yin.detect(this.smallBuf, p.yinThreshold);
+      // Басы: уточняем по длинному окну (и ловим случай, когда короткое ошиблось на октаву вверх)
+      if (!est || est.freq < 2 * LOW_PITCH_HZ) {
+        this.copyLast(this.longBuf);
+        const low = this.yinLong.detect(this.longBuf, p.yinThreshold);
+        // Берём длинное окно, только если оно лучше: короткое молчит, менее уверено
+        // или ошиблось ровно на октаву вверх (частая ошибка на басах телефонного микрофона)
+        if (low && low.freq < LOW_PITCH_HZ && low.clarity >= p.minClarity) {
+          const octaveUp = est !== null && Math.abs(1200 * Math.log2(est.freq / (2 * low.freq))) < 50;
+          if (!est || octaveUp || low.clarity > est.clarity) {
+            est = low;
+            pitchWindow = LONG_YIN;
+          }
+        }
+      }
       if (est && est.clarity >= p.minClarity) {
         const mf = freqToMidiFloat(est.freq);
         const midi = Math.round(mf);
         pitch = { freq: est.freq, midi, cents: Math.round((mf - midi) * 100), clarity: est.clarity };
       }
     }
-    this.updateStable(pitch, t, events);
+    this.updateStable(pitch, pitchWindow / this.sampleRate, t, events);
 
     // --- Большой спектр ---
     this.copyLast(this.bigBuf);
@@ -291,13 +319,21 @@ export class Analyzer {
     });
   }
 
-  /** Нота считается устойчивой после 3 совпадающих кадров (2 — сразу после атаки). */
-  private updateStable(pitch: PitchInfo | null, t: number, events: AnalyzerEvent[]): void {
+  /**
+   * Фиксация ноты в свободном режиме.
+   * Новая нота принимается ТОЛЬКО в окне NOTE_AFTER_ONSET_SEC после атаки (2 совпадающих кадра).
+   * Высота без атаки — голос, свист, гул, «плавание» затухающей струны — не считается нотой;
+   * о ней сообщаем один раз (afterOnset: false) для диагностики.
+   */
+  private updateStable(pitch: PitchInfo | null, windowSec: number, t: number, events: AnalyzerEvent[]): void {
+    // Сразу после удара окно ещё в основном содержит ПРЕДЫДУЩИЙ звук — такие кадры пропускаем
+    if (this.restrikePending && pitch && t - this.onsetAt < windowSec / 2) return;
     if (!pitch) {
       if (++this.silentFrames >= 5) {
         this.stableMidi = null;
         this.candidate = null;
         this.candidateCount = 0;
+        this.lastIgnoredMidi = null;
       }
       return;
     }
@@ -307,11 +343,27 @@ export class Analyzer {
       this.candidate = pitch.midi;
       this.candidateCount = 1;
     }
-    const need = this.restrikePending ? 2 : 3;
-    if (this.candidateCount >= need && (pitch.midi !== this.stableMidi || this.restrikePending)) {
-      this.stableMidi = pitch.midi;
-      events.push({ type: 'note', t, pitch, afterOnset: this.restrikePending });
-      this.restrikePending = false;
+    if (this.restrikePending && t - this.onsetAt > NOTE_AFTER_ONSET_SEC) this.restrikePending = false;
+
+    if (this.restrikePending) {
+      if (this.candidateCount >= 2) {
+        this.stableMidi = pitch.midi;
+        this.restrikePending = false;
+        this.lastIgnoredMidi = pitch.midi;
+        events.push({ type: 'note', t, pitch, afterOnset: true });
+      }
+      return;
+    }
+    // Диагностика «высота без удара» — не чаще раза в секунду, чтобы голос не забивал лог
+    if (
+      this.candidateCount >= 4 &&
+      pitch.midi !== this.stableMidi &&
+      pitch.midi !== this.lastIgnoredMidi &&
+      t - this.lastIgnoredAt >= 1
+    ) {
+      this.lastIgnoredMidi = pitch.midi;
+      this.lastIgnoredAt = t;
+      events.push({ type: 'note', t, pitch, afterOnset: false });
     }
   }
 

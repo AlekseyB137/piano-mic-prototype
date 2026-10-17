@@ -1,7 +1,7 @@
 export const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const;
 
-/** Диапазон экранной клавиатуры прототипа: C3–B5. */
-export const KEY_LOW = 48;
+/** Диапазон экранной клавиатуры прототипа: C2–B5. */
+export const KEY_LOW = 36;
 export const KEY_HIGH = 83;
 
 export function midiToFreq(midi: number, a4 = 440): number {

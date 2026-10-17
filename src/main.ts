@@ -132,7 +132,7 @@ function reportText(): string {
     `Параметры: ${JSON.stringify(params)}`,
     `Режим: ${mode}${expected.size ? `, ожидаем ${[...expected].map(midiToName).join(' ')}` : ''}`,
     '',
-    'Лог (новые сверху):',
+    `Лог (новые сверху, ${log.size} событий):`,
     log.toText(),
   ];
   return lines.join('\n');
@@ -182,6 +182,19 @@ debug.onFftSize = (n) => {
   fftSize = n;
   save(LS_FFT, { n });
   if (capture.running) showMessage('Новый размер FFT применится после «Стоп» → «Старт».', 'info');
+};
+debug.onShare = async () => {
+  const text = reportText();
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'Piano mic — отчёт', text });
+      return;
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return; // пользователь закрыл меню
+    }
+  }
+  const ok = await copyText(text);
+  showMessage(ok ? 'Меню «Поделиться» недоступно — отчёт скопирован в буфер обмена.' : 'Не удалось поделиться или скопировать — выделите лог вручную.', 'info');
 };
 debug.onCopy = async () => {
   const ok = await copyText(reportText());
@@ -252,16 +265,14 @@ function onEvent(ev: AnalyzerEvent): void {
         keyboard.clear('pass');
         keyboard.clear('fail');
       }
-      log.add(`Атака (поток ${ev.flux.toFixed(3)} > ${ev.threshold.toFixed(3)})`, 'onset', ev.t);
+      log.add(`Атака (поток ${ev.flux.toFixed(3)} > ${ev.threshold.toFixed(3)}, ${ev.rmsDb.toFixed(0)} дБFS)`, 'onset', ev.t);
       break;
     case 'note':
       if (mode === 'free') {
         const p = ev.pitch;
-        log.add(
-          `${ev.afterOnset ? 'Удар' : 'Смена'}: ${midiToName(p.midi)} ${p.freq.toFixed(1)} Гц ${p.cents >= 0 ? '+' : ''}${p.cents} ц, ув. ${p.clarity.toFixed(2)}`,
-          'note',
-          ev.t,
-        );
+        const desc = `${midiToName(p.midi)} ${p.freq.toFixed(1)} Гц ${p.cents >= 0 ? '+' : ''}${p.cents} ц, ув. ${p.clarity.toFixed(2)}`;
+        if (ev.afterOnset) log.add(`Удар: ${desc}`, 'note', ev.t);
+        else log.add(`Без атаки, игнор. (голос/шум?): ${desc}`, 'ignored', ev.t);
       }
       break;
     case 'check': {

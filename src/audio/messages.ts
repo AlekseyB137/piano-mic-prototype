@@ -48,13 +48,15 @@ export interface OnsetEvent {
   t: number;
   flux: number;
   threshold: number;
+  /** Уровень сигнала в момент атаки, дБFS. */
+  rmsDb: number;
 }
 
 export interface NoteEvent {
   type: 'note';
   t: number;
   pitch: PitchInfo;
-  /** Нота зафиксирована сразу после атаки (новый удар), а не сменой высоты. */
+  /** true — нота после удара; false — устойчивая высота БЕЗ атаки (голос/шум), нотой не считается. */
   afterOnset: boolean;
 }
 

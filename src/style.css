@@ -162,6 +162,7 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
 .log time { color: var(--text-dim); }
 .log-onset { color: var(--text-dim); }
 .log-note { color: var(--accent); }
+.log-ignored { color: var(--text-dim); font-style: italic; }
 .log-pass { color: var(--success); }
 .log-fail, .log-error { color: var(--danger); }
 
@@ -189,6 +190,7 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
 .debug dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0 0 8px; }
 .debug dt { color: var(--text-dim); }
 .debug dd { margin: 0; word-break: break-word; -webkit-user-select: text; user-select: text; }
+.debug .buttons { display: flex; gap: 6px; flex-wrap: wrap; }
 .debug .hint { margin: 2px 0 8px; color: var(--text-dim); font-size: 11px; }
 .debug .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .debug select { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px; }
