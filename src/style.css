@@ -118,7 +118,6 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
 .readout { min-height: 0; overflow: auto; display: flex; flex-direction: column; justify-content: center; }
 .readout-free { text-align: center; }
 .note-big { font-size: clamp(40px, 14vh, 96px); font-weight: 700; line-height: 1; letter-spacing: -1px; }
-.note-big.unstable { color: var(--text-dim); }
 .note-meta { color: var(--text-dim); margin: 6px 0 8px; font-variant-numeric: tabular-nums; }
 .cents-bar { position: relative; height: 8px; margin: 0 auto; max-width: 320px; border-radius: 4px; background: var(--surface-2); }
 .cents-zero { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: var(--text-dim); }
@@ -160,9 +159,7 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
 .log-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; color: var(--text-dim); font-size: 12px; border-bottom: 1px solid var(--border); }
 .log ol { list-style: none; margin: 0; padding: 4px 8px; overflow-y: auto; font: 11px/1.45 ui-monospace, monospace; -webkit-user-select: text; user-select: text; }
 .log time { color: var(--text-dim); }
-.log-onset { color: var(--text-dim); }
 .log-note { color: var(--accent); }
-.log-ignored { color: var(--text-dim); font-style: italic; }
 .log-pass { color: var(--success); }
 .log-fail, .log-error { color: var(--danger); }
 

@@ -38,7 +38,7 @@ export interface NoteEvidence {
   harmonics: HarmonicEvidence[];
   /** Средний положительный SNR собственных гармоник — для сравнения и отладки. */
   score: number;
-  /** Энергия на частотах ноты октавой ниже (f0/2, 1.5·f0), дБ над шумом. */
+  /** Энергия «подложки» — ноты, чьи гармоники содержат f0 (f0/2, f0/3, f0/4), дБ над шумом. */
   subDb: number | null;
   passed: boolean;
   verdict: NoteVerdict;
@@ -52,6 +52,13 @@ const BG_NEAR = 4;
 const BG_FAR = 12;
 const SHARE_TOLERANCE_CENTS = 45;
 const OTHER_HARMONICS = 8;
+/** Ниже этого телефонный микрофон почти глух — такие частоты не проверяем. */
+const MIN_SUB_HZ = 40;
+const SUBHARMONICS = [
+  { semis: 12, ratios: [1 / 2, 3 / 2], need: 1 },
+  { semis: 19, ratios: [1 / 3, 2 / 3, 4 / 3], need: 2 },
+  { semis: 24, ratios: [1 / 4, 3 / 4, 5 / 4], need: 2 },
+];
 
 /** Частота h-й гармоники с учётом негармоничности: f_h = h·f0·√(1 + B·h²). */
 export function partialFreq(f0: number, h: number): number {
@@ -181,19 +188,24 @@ export function evaluateNotes(ctx: SpectrumContext, expected: number[], p: Chord
       }
     }
 
-    // Защита: октава ниже
+    // Защита: f0 — лишь гармоника более низкой ноты (f0/2 — октава ниже, f0/3 — дуодецима ниже, f0/4 — 2 октавы).
+    // Например, у G2 (и у голоса на G2) 3-я гармоника = D4. Такая нижняя нота даёт энергию
+    // на «своих» частотах f0·j/k, которых у самой ноты нет.
     let subDb: number | null = null;
     let octaveDown = false;
-    if (!set.has(midi - 12)) {
-      const subs = [0.5, 1.5]
+    for (const sh of SUBHARMONICS) {
+      if (set.has(midi - sh.semis)) continue;
+      const vals = sh.ratios
         .map((r) => f0 * r)
-        .filter((f) => !explainedByOthers(f, others))
+        .filter((f) => f >= MIN_SUB_HZ && !explainedByOthers(f, others))
         .map((f) => snrAt(ctx, f, p.toleranceCents).snr)
-        .filter((v) => Number.isFinite(v));
-      if (subs.length > 0) {
-        subDb = Math.max(...subs);
-        octaveDown = subDb >= p.snrDb && subDb >= h1.snrDb - p.octaveMarginDb;
-      }
+        .filter((v) => Number.isFinite(v))
+        .sort((a, b) => b - a);
+      if (vals.length < sh.need) continue;
+      // Для f0/3 и f0/4 нужны ДВЕ сильные частоты — одна могла совпасть случайно
+      const v = vals[sh.need - 1];
+      subDb = subDb === null ? v : Math.max(subDb, v);
+      if (v >= p.snrDb && v >= h1.snrDb - p.octaveMarginDb) octaveDown = true;
     }
 
     // Новый удар: хотя бы одна сильная собственная гармоника заметно выросла
@@ -214,4 +226,50 @@ export function evaluateNotes(ctx: SpectrumContext, expected: number[], p: Chord
 
     return { midi, harmonics, score, subDb, passed: verdict === 'ok', verdict };
   });
+}
+
+/** SNR (дБ) настоящего пика у частоты freq — для проверок вне аккорда. */
+export function partialSnrDb(ctx: SpectrumContext, freq: number, tolCents: number): number {
+  return snrAt(ctx, freq, tolCents).snr;
+}
+
+export interface TunedPeaks {
+  /** Сколько заметных НОВЫХ пиков (выросли относительно спектра до удара). */
+  peaks: number;
+  /** Из них лежат близко к нотам равномерного строя. */
+  tuned: number;
+}
+
+/**
+ * «Фортепианность» звука без знания нот: у струн все нижние партиалы
+ * (×1, ×2, ×4 и почти ×3) попадают в ноты строя, а голос и шумы — куда угодно.
+ * Считаем только пики, выросшие после удара (нужен ctx.reference).
+ */
+export function countTunedPeaks(
+  ctx: SpectrumContext,
+  opts: { fMin: number; fMax: number; promDb: number; riseDb: number; tolCents: number; maxPeaks: number },
+): TunedPeaks {
+  const mags = ctx.mags;
+  const binHz = ctx.sampleRate / ctx.fftSize;
+  const kLo = Math.max(2, Math.floor(opts.fMin / binHz));
+  const kHi = Math.min(mags.length - 3, Math.ceil(opts.fMax / binHz));
+  const found: { mag: number; dev: number }[] = [];
+  for (let k = kLo; k <= kHi; k++) {
+    const m = mags[k];
+    if (!(m > mags[k - 1] && m >= mags[k + 1])) continue;
+    const ref = Math.max(ctx.noise ? ctx.noise[k] : 0, localBackground(mags, k), ctx.noiseFloor);
+    if (20 * Math.log10(m / ref) < opts.promDb) continue;
+    if (ctx.reference) {
+      const before = Math.max(ctx.reference[k - 1], ctx.reference[k], ctx.reference[k + 1], ctx.noiseFloor);
+      if (20 * Math.log10(m / before) < opts.riseDb) continue;
+    }
+    const a = Math.log(mags[k - 1] + 1e-12), b = Math.log(m + 1e-12), c = Math.log(mags[k + 1] + 1e-12);
+    const denom = a - 2 * b + c;
+    const shift = denom < 0 ? Math.max(-0.5, Math.min(0.5, (0.5 * (a - c)) / denom)) : 0;
+    const semis = 12 * Math.log2(((k + shift) * binHz) / 440);
+    found.push({ mag: m, dev: 100 * (semis - Math.round(semis)) });
+  }
+  found.sort((x, y) => y.mag - x.mag);
+  const top = found.slice(0, opts.maxPeaks);
+  return { peaks: top.length, tuned: top.filter((x) => Math.abs(x.dev) <= opts.tolCents).length };
 }

@@ -38,6 +38,10 @@ export class CheckSession {
     return this.active;
   }
 
+  get startTime(): number {
+    return this.start;
+  }
+
   /** Вызывается при атаке. Возвращает результат предыдущего окна, если его пришлось закрыть. */
   onOnset(t: number, expected: number[], reference: Float32Array | null, minHits: number): CheckResult | null {
     if (expected.length === 0) return null;

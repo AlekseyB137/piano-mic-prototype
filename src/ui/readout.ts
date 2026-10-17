@@ -8,7 +8,7 @@ const VERDICT_TEXT: Record<NoteVerdict, string> = {
   ok: 'есть',
   weak: 'не слышно',
   'octave-up': 'октава выше?',
-  'octave-down': 'октава ниже?',
+  'octave-down': 'нота ниже?',
   'no-attack': 'нет нового удара',
 };
 
@@ -39,7 +39,6 @@ export class Readout {
   private readonly chips: HTMLElement;
   private readonly status: HTMLElement;
   private readonly chipEls = new Map<number, { root: HTMLElement; state: HTMLElement; detail: HTMLElement }>();
-  private expected: number[] = [];
   private result: CheckEvent | null = null;
   onClear: () => void = () => {};
 
@@ -80,22 +79,21 @@ export class Readout {
   }
 
   private updateFree(f: FrameEvent): void {
-    const midi = f.stableMidi ?? f.pitch?.midi ?? null;
+    // Показываем только подтверждённую ноту — голос и шум на экран не попадают
+    const midi = f.stableMidi;
     this.noteBig.textContent = midi === null ? '—' : midiToName(midi);
-    this.noteBig.classList.toggle('unstable', f.stableMidi === null);
-    if (f.pitch) {
+    if (midi !== null && f.pitch && f.pitch.midi === midi) {
       const c = f.pitch.cents;
       this.noteMeta.textContent = `${f.pitch.freq.toFixed(1)} Гц · ${c >= 0 ? '+' : ''}${c} ц · уверенность ${f.pitch.clarity.toFixed(2)}`;
       this.centsNeedle.style.left = `${50 + Math.max(-50, Math.min(50, c))}%`;
       this.centsNeedle.classList.remove('hidden');
     } else {
-      this.noteMeta.textContent = f.gateOpen ? 'Высота не определена' : 'Тихо';
+      this.noteMeta.textContent = midi !== null ? midiToName(midi) : 'Сыграйте ноту';
       this.centsNeedle.classList.add('hidden');
     }
   }
 
   setExpected(midis: number[]): void {
-    this.expected = midis;
     this.result = null;
     this.chipEls.clear();
     this.chips.replaceChildren(
@@ -110,12 +108,6 @@ export class Readout {
       }),
     );
     this.status.textContent = midis.length ? 'Ждём удар…' : 'Ноты не выбраны';
-    this.status.className = 'check-status';
-  }
-
-  onOnset(): void {
-    if (this.mode !== 'check' || !this.expected.length) return;
-    this.status.textContent = 'Анализ…';
     this.status.className = 'check-status';
   }
 

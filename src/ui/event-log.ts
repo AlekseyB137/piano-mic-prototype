@@ -1,4 +1,4 @@
-export type LogKind = 'info' | 'onset' | 'note' | 'ignored' | 'pass' | 'fail' | 'error';
+export type LogKind = 'info' | 'note' | 'pass' | 'fail' | 'error';
 
 interface Entry {
   wall: string;

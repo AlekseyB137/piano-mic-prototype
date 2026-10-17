@@ -115,6 +115,7 @@ function infoRows(): [string, string][] {
     const onsetLat = (128 + workletInfo.hop * 2 + workletInfo.smallFft / 2) / sr + inLat;
     rows.push(['Задержка (оценка)', `атака ≈ ${ms(onsetLat)}${inLat ? '' : ' + вход (н/д)'}; проверка: ${lastCheckLatency !== null ? `${lastCheckLatency} мс после удара (посл.)` : 'измеряется'}`]);
   }
+  if (latestFrame) rows.push(['Отброшено атак', `${latestFrame.ignoredAttacks} (голос, стук, шум)`]);
   rows.push(['Шум', calibration ? `${calibration.rmsDb.toFixed(1)} дБFS, порог атаки ${calibration.onsetDelta}` : 'не откалиброван']);
   rows.push(['Пороги', `гейт +${params.gateDb} дБ, SNR ${params.snrDb} дБ, атака ${params.onsetDelta}+${params.onsetMultiplier}×мед.`]);
   return rows;
@@ -248,6 +249,10 @@ btnDebug.addEventListener('click', () => {
 });
 
 // --- События анализатора ---
+function attackText(a: { flux: number; rmsDb: number }): string {
+  return `атака ${a.flux.toFixed(3)}, ${a.rmsDb.toFixed(0)} дБFS`;
+}
+
 function onEvent(ev: AnalyzerEvent): void {
   switch (ev.type) {
     case 'info':
@@ -259,20 +264,17 @@ function onEvent(ev: AnalyzerEvent): void {
       debug.pushFrame(ev);
       break;
     case 'onset':
+      // Сырая атака ещё не нота (может быть голос или стук) — только метка на графике
       debug.markOnset();
-      readout.onOnset();
-      if (mode === 'check') {
-        keyboard.clear('pass');
-        keyboard.clear('fail');
-      }
-      log.add(`Атака (поток ${ev.flux.toFixed(3)} > ${ev.threshold.toFixed(3)}, ${ev.rmsDb.toFixed(0)} дБFS)`, 'onset', ev.t);
       break;
     case 'note':
       if (mode === 'free') {
         const p = ev.pitch;
-        const desc = `${midiToName(p.midi)} ${p.freq.toFixed(1)} Гц ${p.cents >= 0 ? '+' : ''}${p.cents} ц, ув. ${p.clarity.toFixed(2)}`;
-        if (ev.afterOnset) log.add(`Удар: ${desc}`, 'note', ev.t);
-        else log.add(`Без атаки, игнор. (голос/шум?): ${desc}`, 'ignored', ev.t);
+        log.add(
+          `${midiToName(p.midi)} ${p.freq.toFixed(1)} Гц ${p.cents >= 0 ? '+' : ''}${p.cents} ц, ув. ${p.clarity.toFixed(2)} · ${attackText(ev.attack)}`,
+          'note',
+          ev.t,
+        );
       }
       break;
     case 'check': {
@@ -287,7 +289,11 @@ function onEvent(ev: AnalyzerEvent): void {
         const score = n.evidence ? ` ${n.evidence.score.toFixed(0)}дБ` : '';
         return `${midiToName(n.midi)}${n.passed ? '✓' : '✗'}${why}${score}`;
       });
-      log.add(`${ev.allPassed ? 'Засчитано' : 'Не засчитано'}: ${parts.join(' ')} · ${ev.latencyMs} мс`, ev.allPassed ? 'pass' : 'fail', ev.onsetTime);
+      log.add(
+        `${ev.allPassed ? 'Засчитано' : 'Не засчитано'}: ${parts.join(' ')} · ${ev.latencyMs} мс · ${attackText(ev.attack)}`,
+        ev.allPassed ? 'pass' : 'fail',
+        ev.onsetTime,
+      );
       if (!debug.root.classList.contains('collapsed')) refreshInfo();
       break;
     }

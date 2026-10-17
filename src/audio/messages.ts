@@ -39,6 +39,8 @@ export interface FrameEvent {
   /** Живая оценка ожидаемых нот (только в режиме проверки). */
   live: NoteEvidence[] | null;
   checking: boolean;
+  /** Сколько атак отброшено как «не фортепиано» (голос, стук, шум). */
+  ignoredAttacks: number;
   /** Время обработки (мс на секунду звука), если доступен performance.now. */
   loadMsPerSec: number | null;
 }
@@ -52,16 +54,22 @@ export interface OnsetEvent {
   rmsDb: number;
 }
 
+export interface AttackInfo {
+  flux: number;
+  rmsDb: number;
+}
+
+/** Подтверждённая нота: удар + устойчивая высота в строе. */
 export interface NoteEvent {
   type: 'note';
   t: number;
   pitch: PitchInfo;
-  /** true — нота после удара; false — устойчивая высота БЕЗ атаки (голос/шум), нотой не считается. */
-  afterOnset: boolean;
+  attack: AttackInfo;
 }
 
 export interface CheckEvent extends CheckResult {
   type: 'check';
+  attack: AttackInfo;
 }
 
 export interface CalibratedEvent {

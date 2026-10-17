@@ -12,6 +12,10 @@ export interface AnalyzerParams {
   onsetDelta: number;
   /** Атака: минимальный интервал между ударами, мс. */
   onsetMinIntervalMs: number;
+  /** Нота: максимальный дрейф высоты за 3 кадра после удара, центы (голос «плавает»). */
+  maxDriftCents: number;
+  /** Нота: максимальное отклонение от равномерного строя, центы. */
+  maxDetuneCents: number;
   /** Проверка: гармоника должна быть выше шума на столько дБ. */
   snrDb: number;
   /** Проверка: допуск частоты пика, центы (больше — для расстроенного пианино). */
@@ -35,7 +39,9 @@ export const DEFAULT_PARAMS: AnalyzerParams = {
   onsetMultiplier: 1.5,
   onsetDelta: 0.03,
   onsetMinIntervalMs: 70,
-  snrDb: 15,
+  maxDriftCents: 15,
+  maxDetuneCents: 20,
+  snrDb: 11,
   toleranceCents: 40,
   minHarmonics: 2,
   riseDb: 3,
