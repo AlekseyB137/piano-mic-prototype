@@ -58,6 +58,7 @@ const statusDot = $('#status-dot');
 const message = $('#message');
 
 const tgEnv: TelegramEnv = initTelegram((m) => log.add(m, 'info'));
+log.add(`Сборка ${__BUILD_ID__}`);
 log.add(tgEnv.inTelegram ? `Telegram ${tgEnv.platform} v${tgEnv.version}` : 'Запущено вне Telegram (браузер)');
 
 const capture = new AudioCapture();
@@ -92,6 +93,7 @@ function ms(sec: number | null | undefined): string {
 
 function infoRows(): [string, string][] {
   const rows: [string, string][] = [];
+  rows.push(['Сборка', __BUILD_ID__]);
   rows.push(['Среда', tgEnv.inTelegram ? `Telegram ${tgEnv.platform} ${tgEnv.version}` : 'браузер']);
   if (tgEnv.applied.length) rows.push(['TG API', tgEnv.applied.join(', ')]);
   rows.push(['Аудио', ctxState]);
