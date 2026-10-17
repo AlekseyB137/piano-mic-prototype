@@ -1,0 +1,217 @@
+import { midiToFreq } from './notes';
+
+export interface ChordCheckParams {
+  snrDb: number;
+  /** Допуск отклонения пика от ожидаемой частоты, центы. */
+  toleranceCents: number;
+  minHarmonics: number;
+  octaveMarginDb: number;
+  riseDb: number;
+}
+
+export interface SpectrumContext {
+  mags: Float32Array;
+  /** Профиль шума по бинам (после калибровки) или null. */
+  noise: Float32Array | null;
+  /** Нижняя граница шума (линейная амплитуда), если профиля нет или он слишком тихий. */
+  noiseFloor: number;
+  sampleRate: number;
+  fftSize: number;
+  /** Спектр непосредственно перед атакой — для проверки «нового удара». */
+  reference: Float32Array | null;
+}
+
+export interface HarmonicEvidence {
+  h: number;
+  freq: number;
+  snrDb: number;
+  /** Рост относительно спектра до удара, дБ (null если нет опорного спектра). */
+  riseDb: number | null;
+  /** Гармоника совпадает с гармоникой другой ожидаемой ноты — не доказывает эту ноту. */
+  shared: boolean;
+}
+
+export type NoteVerdict = 'ok' | 'weak' | 'octave-up' | 'octave-down' | 'no-attack';
+
+export interface NoteEvidence {
+  midi: number;
+  harmonics: HarmonicEvidence[];
+  /** Средний положительный SNR собственных гармоник — для сравнения и отладки. */
+  score: number;
+  /** Энергия на частотах ноты октавой ниже (f0/2, 1.5·f0), дБ над шумом. */
+  subDb: number | null;
+  passed: boolean;
+  verdict: NoteVerdict;
+}
+
+const HARMONICS = [1, 2, 3, 4];
+/** Коэффициент негармоничности струны (типичный порядок для среднего регистра). */
+const INHARMONICITY = 3e-4;
+/** Локальный фон: медиана бинов на расстоянии BG_NEAR..BG_FAR от пика (вне главного лепестка окна). */
+const BG_NEAR = 4;
+const BG_FAR = 12;
+const SHARE_TOLERANCE_CENTS = 45;
+const OTHER_HARMONICS = 8;
+
+/** Частота h-й гармоники с учётом негармоничности: f_h = h·f0·√(1 + B·h²). */
+export function partialFreq(f0: number, h: number): number {
+  return h * f0 * Math.sqrt(1 + INHARMONICITY * h * h);
+}
+
+function binRange(freq: number, binHz: number, maxBin: number, cents: number): [number, number] {
+  const k0 = Math.round(freq / binHz);
+  let lo = Math.floor((freq * Math.pow(2, -cents / 1200)) / binHz);
+  let hi = Math.ceil((freq * Math.pow(2, cents / 1200)) / binHz);
+  lo = Math.max(1, Math.min(lo, k0 - 1));
+  hi = Math.min(maxBin, Math.max(hi, k0 + 1));
+  return [lo, hi];
+}
+
+function peakAround(arr: Float32Array, lo: number, hi: number): [number, number] {
+  let best = 0, bin = lo;
+  for (let k = lo; k <= hi; k++) if (arr[k] > best) { best = arr[k]; bin = k; }
+  return [best, bin];
+}
+
+/** Частота «объясняется» гармониками других ожидаемых нот? */
+function explainedByOthers(freq: number, others: number[]): boolean {
+  for (const f0 of others) {
+    for (let k = 1; k <= OTHER_HARMONICS; k++) {
+      if (Math.abs(1200 * Math.log2(freq / partialFreq(f0, k))) < SHARE_TOLERANCE_CENTS) return true;
+    }
+  }
+  return false;
+}
+
+const bgBuf = new Float32Array(2 * (BG_FAR - BG_NEAR + 1));
+
+/** Медиана спектра вокруг бина, без главного лепестка — оценка широкополосного фона (стук, шум, голос). */
+function localBackground(mags: Float32Array, bin: number): number {
+  let n = 0;
+  for (let d = BG_NEAR; d <= BG_FAR; d++) {
+    if (bin - d >= 1) bgBuf[n++] = mags[bin - d];
+    if (bin + d < mags.length) bgBuf[n++] = mags[bin + d];
+  }
+  if (n === 0) return 0;
+  const b = bgBuf.subarray(0, n).sort();
+  return b[n >> 1];
+}
+
+/**
+ * SNR гармоники на частоте freq.
+ * Засчитываем только НАСТОЯЩИЙ пик: локальный максимум, чья уточнённая
+ * (параболой по лог-амплитудам) частота лежит в пределах допуска.
+ * Иначе в окно попадает склон соседнего пика — и C#4 «засчитывается» как C4.
+ * Опора для SNR — максимум из профиля шума комнаты и локального фона спектра.
+ */
+function snrAt(ctx: SpectrumContext, freq: number, tolCents: number): { snr: number; rise: number | null } {
+  const binHz = ctx.sampleRate / ctx.fftSize;
+  const mags = ctx.mags;
+  const maxBin = mags.length - 2;
+  if (freq / binHz >= maxBin - 1) return { snr: -Infinity, rise: null };
+  const [lo, hi] = binRange(freq, binHz, maxBin, tolCents);
+  const [peak, bin] = peakAround(mags, lo, hi);
+
+  let isPeak = peak > 0 && mags[bin] >= mags[bin - 1] && mags[bin] >= mags[bin + 1];
+  if (isPeak) {
+    const a = Math.log(mags[bin - 1] + 1e-12), b = Math.log(mags[bin] + 1e-12), c = Math.log(mags[bin + 1] + 1e-12);
+    const denom = a - 2 * b + c;
+    const shift = denom < 0 ? Math.max(-0.5, Math.min(0.5, (0.5 * (a - c)) / denom)) : 0;
+    const cents = 1200 * Math.log2(((bin + shift) * binHz) / freq);
+    isPeak = Math.abs(cents) <= tolCents;
+  }
+
+  const ref = Math.max(ctx.noise ? ctx.noise[bin] : 0, localBackground(mags, bin), ctx.noiseFloor);
+  let snr = 20 * Math.log10((peak + 1e-12) / ref);
+  if (!isPeak) snr = Math.min(snr, 0); // нет пика — нет гармоники
+  let rise: number | null = null;
+  if (ctx.reference) {
+    const [refPeak] = peakAround(ctx.reference, lo, hi);
+    rise = 20 * Math.log10((peak + 1e-12) / Math.max(refPeak, ctx.noiseFloor));
+  }
+  return { snr, rise };
+}
+
+/**
+ * Проверка набора ожидаемых нот по спектру.
+ *
+ * Идея: каждая нота пианино — серия партиалов f0, 2f0, 3f0, 4f0…
+ * 1) Ищем пик рядом с каждой гармоникой и сравниваем с профилем шума (SNR).
+ * 2) Гармоники, совпадающие с гармониками других нот аккорда, помечаем как «общие»:
+ *    они не доказывают именно эту ноту (например, 3-я гармоника C4 = 2-я гармоника G4).
+ * 3) Октава выше (n+12) имеет только чётные гармоники n, поэтому требуем энергию
+ *    на «собственных» нечётных гармониках (1 и 3).
+ * 4) Октава ниже (n−12) даёт энергию на f0/2 и 1.5·f0. Если там сильный пик,
+ *    сравнимый с основным тоном — подозреваем, что сыграли ноту октавой ниже.
+ * 5) Если задан опорный спектр до удара — требуем рост энергии (защита от
+ *    затухающей ноты, особенно при педали).
+ */
+export function evaluateNotes(ctx: SpectrumContext, expected: number[], p: ChordCheckParams): NoteEvidence[] {
+  const set = new Set(expected);
+  return expected.map((midi) => {
+    const f0 = midiToFreq(midi);
+    const others = expected.filter((m) => m !== midi).map((m) => midiToFreq(m));
+
+    const harmonics: HarmonicEvidence[] = HARMONICS.map((h) => {
+      const freq = partialFreq(f0, h);
+      const { snr, rise } = snrAt(ctx, freq, p.toleranceCents);
+      return { h, freq, snrDb: snr, riseDb: rise, shared: explainedByOthers(freq, others) };
+    });
+
+    const own = harmonics.filter((x) => !x.shared && Number.isFinite(x.snrDb));
+    const strongOwn = own.filter((x) => x.snrDb >= p.snrDb);
+    const h1 = harmonics[0];
+
+    // Наличие ноты
+    let present: boolean;
+    if (own.length === 0) {
+      // Все гармоники общие (например, C4 и C5 вместе) — довольствуемся основным тоном
+      present = h1.snrDb >= p.snrDb;
+    } else {
+      present = strongOwn.length >= Math.min(p.minHarmonics, own.length);
+    }
+
+    // Защита: октава выше
+    let octaveUp = false;
+    if (!set.has(midi + 12)) {
+      const ownOdd = own.filter((x) => x.h % 2 === 1);
+      if (ownOdd.length > 0) {
+        const bestOdd = Math.max(...ownOdd.map((x) => x.snrDb));
+        octaveUp = bestOdd < p.snrDb;
+      }
+    }
+
+    // Защита: октава ниже
+    let subDb: number | null = null;
+    let octaveDown = false;
+    if (!set.has(midi - 12)) {
+      const subs = [0.5, 1.5]
+        .map((r) => f0 * r)
+        .filter((f) => !explainedByOthers(f, others))
+        .map((f) => snrAt(ctx, f, p.toleranceCents).snr)
+        .filter((v) => Number.isFinite(v));
+      if (subs.length > 0) {
+        subDb = Math.max(...subs);
+        octaveDown = subDb >= p.snrDb && subDb >= h1.snrDb - p.octaveMarginDb;
+      }
+    }
+
+    // Новый удар: хотя бы одна сильная собственная гармоника заметно выросла
+    let rising = true;
+    if (ctx.reference && p.riseDb > 0) {
+      const pool = strongOwn.length > 0 ? strongOwn : harmonics.filter((x) => x.snrDb >= p.snrDb);
+      rising = pool.some((x) => x.riseDb !== null && x.riseDb >= p.riseDb);
+    }
+
+    const positive = own.length ? own : harmonics;
+    const score = positive.reduce((s, x) => s + Math.max(0, Number.isFinite(x.snrDb) ? x.snrDb : 0), 0) / positive.length;
+
+    let verdict: NoteVerdict = 'ok';
+    if (!present) verdict = 'weak';
+    else if (octaveUp) verdict = 'octave-up';
+    else if (octaveDown) verdict = 'octave-down';
+    else if (!rising) verdict = 'no-attack';
+
+    return { midi, harmonics, score, subDb, passed: verdict === 'ok', verdict };
+  });
+}

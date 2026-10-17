@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f1115" />
+    <title>Piano Mic Test</title>
+    <!-- Единственный внешний скрипт. Вне Telegram он безопасен: WebApp.platform = 'unknown'. -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <header class="toolbar">
+        <button id="btn-start" class="primary">Старт</button>
+        <button id="btn-calib" disabled>Тишина 2 с</button>
+        <div class="seg" id="mode">
+          <button data-mode="free" class="active">Свободный</button>
+          <button data-mode="check">Проверка</button>
+        </div>
+        <span class="spacer"></span>
+        <span id="status-dot" class="dot" title="Состояние аудио"></span>
+        <button id="btn-debug">Отладка</button>
+      </header>
+      <div id="message" class="message hidden"></div>
+      <div id="rotate-hint" class="rotate-hint">Поверните телефон горизонтально — клавиши будут крупнее</div>
+      <main class="stage">
+        <section id="readout" class="readout"></section>
+        <section class="log">
+          <div class="log-head">
+            <span>События</span>
+            <button id="btn-log-clear" class="small">Очистить</button>
+          </div>
+          <ol id="log"></ol>
+        </section>
+        <aside id="debug" class="debug collapsed"></aside>
+      </main>
+      <div id="keyboard"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
