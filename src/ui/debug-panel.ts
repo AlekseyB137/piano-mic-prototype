@@ -18,7 +18,7 @@ const SLIDERS: SliderDef[] = [
   { key: 'onsetMultiplier', label: 'Атака: × медиана', min: 0.5, max: 5, step: 0.1 },
   { key: 'onsetMinIntervalMs', label: 'Атака: мин. интервал, мс', min: 20, max: 300, step: 5 },
   { key: 'maxDriftCents', label: 'Нота: макс. дрейф после удара, центы', min: 3, max: 50, step: 1 },
-  { key: 'maxDetuneCents', label: 'Нота: макс. отклонение от строя, центы', min: 10, max: 50, step: 1 },
+  { key: 'maxDetuneCents', label: 'Нота: макс. отклонение от строя (с растяжкой), центы', min: 10, max: 50, step: 1 },
   { key: 'snrDb', label: 'Проверка: гармоника над шумом, дБ', min: 3, max: 40, step: 1 },
   { key: 'toleranceCents', label: 'Проверка: допуск частоты, центы', min: 10, max: 60, step: 1 },
   { key: 'minHarmonics', label: 'Проверка: мин. гармоник', min: 1, max: 4, step: 1 },

@@ -13,6 +13,8 @@ const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)
 
 // --- Сохранение настроек между запусками (только удобство; без storage тоже работает) ---
 const LS_PARAMS = 'pianoMic.params';
+/** Увеличивать при смене значений по умолчанию — старые сохранённые пороги сбросятся. */
+const PARAMS_VERSION = 3;
 const LS_FFT = 'pianoMic.fft';
 function load<T>(key: string, fallback: T): T {
   try {
@@ -31,7 +33,8 @@ function save(key: string, v: unknown): void {
 }
 
 // --- Состояние ---
-let params: AnalyzerParams = load(LS_PARAMS, DEFAULT_PARAMS);
+const stored = load<{ v: number; params: AnalyzerParams }>(LS_PARAMS, { v: 0, params: DEFAULT_PARAMS });
+let params: AnalyzerParams = stored.v === PARAMS_VERSION ? { ...DEFAULT_PARAMS, ...stored.params } : { ...DEFAULT_PARAMS };
 let fftSize = load(LS_FFT, { n: 8192 }).n;
 let mode: Mode = 'free';
 const expected = new Set<number>();
@@ -41,6 +44,7 @@ let captureInfo: CaptureInfo | null = null;
 let calibration: { rmsDb: number; onsetDelta: number } | null = null;
 let lastCheckLatency: number | null = null;
 let ctxState = '—';
+let ignoredAttacks = 0;
 
 // --- UI ---
 const log = new EventLog($('#log'));
@@ -115,7 +119,7 @@ function infoRows(): [string, string][] {
     const onsetLat = (128 + workletInfo.hop * 2 + workletInfo.smallFft / 2) / sr + inLat;
     rows.push(['Задержка (оценка)', `атака ≈ ${ms(onsetLat)}${inLat ? '' : ' + вход (н/д)'}; проверка: ${lastCheckLatency !== null ? `${lastCheckLatency} мс после удара (посл.)` : 'измеряется'}`]);
   }
-  if (latestFrame) rows.push(['Отброшено атак', `${latestFrame.ignoredAttacks} (голос, стук, шум)`]);
+  rows.push(['Отброшено атак', `${ignoredAttacks} (голос, стук, шум)`]);
   rows.push(['Шум', calibration ? `${calibration.rmsDb.toFixed(1)} дБFS, порог атаки ${calibration.onsetDelta}` : 'не откалиброван']);
   rows.push(['Пороги', `гейт +${params.gateDb} дБ, SNR ${params.snrDb} дБ, атака ${params.onsetDelta}+${params.onsetMultiplier}×мед.`]);
   return rows;
@@ -165,7 +169,7 @@ async function copyText(text: string): Promise<boolean> {
 // --- Параметры ---
 function setParams(p: Partial<AnalyzerParams>): void {
   params = { ...params, ...p };
-  save(LS_PARAMS, params);
+  save(LS_PARAMS, { v: PARAMS_VERSION, params });
   capture.post({ type: 'params', params: p });
   refreshInfo();
 }
@@ -174,7 +178,7 @@ debug.onParam = setParams;
 debug.onResetParams = () => {
   const keepDelta = calibration ? { onsetDelta: calibration.onsetDelta } : {};
   params = { ...DEFAULT_PARAMS, ...keepDelta };
-  save(LS_PARAMS, params);
+  save(LS_PARAMS, { v: PARAMS_VERSION, params });
   debug.setParams(params);
   capture.post({ type: 'params', params });
   refreshInfo();
@@ -261,6 +265,7 @@ function onEvent(ev: AnalyzerEvent): void {
       break;
     case 'frame':
       latestFrame = ev;
+      ignoredAttacks = ev.ignoredAttacks;
       debug.pushFrame(ev);
       break;
     case 'onset':
@@ -300,7 +305,7 @@ function onEvent(ev: AnalyzerEvent): void {
     case 'calibrated':
       calibration = { rmsDb: ev.rmsDb, onsetDelta: ev.onsetDelta };
       params = { ...params, onsetDelta: ev.onsetDelta };
-      save(LS_PARAMS, params);
+      save(LS_PARAMS, { v: PARAMS_VERSION, params });
       debug.setParams(params);
       debug.noisePreview = ev.noisePreview;
       btnCalib.disabled = false;

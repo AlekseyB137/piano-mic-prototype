@@ -4,7 +4,7 @@ import { SpectralFluxOnset } from './onset';
 import { NoiseCalibrator } from './noise';
 import { countTunedPeaks, evaluateNotes, partialSnrDb, type NoteEvidence, type SpectrumContext } from './chord-check';
 import { CheckSession } from './check-session';
-import { freqToMidiFloat } from './notes';
+import { expectedStretchCents, freqToMidiFloat } from './notes';
 import { DEFAULT_PARAMS, type AnalyzerParams } from './params';
 import type { AnalyzerEvent, AttackInfo, CheckEvent, PitchInfo } from './messages';
 
@@ -292,7 +292,7 @@ export class Analyzer {
       // Аккорд YIN не определит — «фортепианность» берём по новым пикам в нотах строя
       const sessionStart = this.session.isActive ? this.session.startTime : this.pendingCheck?.res.onsetTime;
       if (sessionStart !== undefined && !this.sessionPiano && this.sessionRef && t - sessionStart >= 0.05) {
-        const tp = countTunedPeaks(this.spectrumContext(this.sessionRef), { fMin: 60, fMax: 2000, promDb: 12, riseDb: 6, tolCents: p.maxDetuneCents, maxPeaks: 10 });
+        const tp = countTunedPeaks(this.spectrumContext(this.sessionRef), { fMin: 60, fMax: 2000, promDb: 12, riseDb: 6, tolCents: p.maxDetuneCents + 10, maxPeaks: 10 });
         if (tp.peaks >= 3 && tp.tuned / tp.peaks >= 0.75 && this.looksStruck(sessionStart, t)) this.sessionPiano = true;
       }
       const res = this.session.update(t, live, p.checkWindowMs / 1000, p.checkMinHits);
@@ -459,7 +459,9 @@ export class Analyzer {
     const drift = (Math.max(...this.track) - Math.min(...this.track)) * 100;
     const mean = this.track.reduce((a, b) => a + b, 0) / this.track.length;
     const detune = (mean - Math.round(mean)) * 100;
-    if (drift > p.maxDriftCents || Math.abs(detune) > p.maxDetuneCents) return;
+    // Отклонение считаем от ожидаемой растяжки регистра, а не от «идеального» строя
+    const offTune = detune - expectedStretchCents(midis[0]);
+    if (drift > p.maxDriftCents || Math.abs(offTune) > p.maxDetuneCents) return;
     if (!this.looksStruck(this.onsetAt, t)) {
       // Высота устойчива, но громкость после «атаки» выросла — это слог, а не удар
       this.restrikePending = false;
