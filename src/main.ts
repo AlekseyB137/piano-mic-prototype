@@ -286,8 +286,12 @@ function onEvent(ev: AnalyzerEvent): void {
     case 'note':
       if (mode === 'free') {
         const p = ev.pitch;
+        const how =
+          p.source === 'spectrum'
+            ? 'по спектру'
+            : `${p.freq.toFixed(1)} Гц ${p.cents >= 0 ? '+' : ''}${p.cents} ц, ув. ${p.clarity.toFixed(2)}`;
         log.add(
-          `${midiToName(p.midi)} ${p.freq.toFixed(1)} Гц ${p.cents >= 0 ? '+' : ''}${p.cents} ц, ув. ${p.clarity.toFixed(2)} · ${attackText(ev.attack)}`,
+          `${midiToName(p.midi)} ${how} · ${attackText(ev.attack)}`,
           'note',
           ev.t,
         );

@@ -35,8 +35,8 @@ const LOW_PITCH_HZ = 160;
 const NOTE_AFTER_ONSET_SEC = 0.35;
 /** Сколько кадров подряд высота должна быть устойчивой. */
 const CONFIRM_FRAMES = 3;
-/** Атаки ближе этого к уже подтверждённой — тот же удар (дребезг детектора). */
-const SAME_STRIKE_SEC = 0.08;
+/** Атаки ближе этого к уже подтверждённой — тот же удар (дребезг детектора, стук клавиши; на iPhone 85–128 мс). */
+const SAME_STRIKE_SEC = 0.12;
 /** Нечётные партиалы (3f, 5f) должны быть выше фона, чтобы поверить в низкую октаву. */
 const ODD_PARTIAL_DB = 8;
 /** Сколько последних малых спектров храним, чтобы взять спектр ДО атаки (детектор срабатывает с задержкой). */
@@ -49,6 +49,12 @@ const MID_HISTORY = 3;
  * колебанием в случайной фазе, поэтому рост бывает маленьким — строгий порог тут вреден.
  */
 const NOTE_RISE_DB = 1.5;
+/** Атака в пределах этого времени после ещё не подтверждённой — тот же удар, подтверждение продолжаем. */
+const MERGE_ONSET_SEC = 0.15;
+/** Спектральный путь: допуск частоты партиала, центы (строже общего — иначе ловим склоны соседних пиков). */
+const SPEC_TOL_CENTS = 30;
+/** Спектральный путь: сосед ±1 полутон с основным тоном громче на столько дБ — наш «пик» лишь его склон. */
+const SPEC_NEIGHBOR_DB = 10;
 /** Спектральный путь: партиал учитывается, если он выше фона на столько дБ. */
 const SPEC_PEAK_DB = 10;
 /** Спектральный путь: минимальный суммарный рост партиалов ноты, дБ·вес. */
@@ -401,6 +407,14 @@ export class Analyzer {
       this.sessionAttack = { flux, rmsDb };
     }
 
+    if (this.restrikePending && !this.attackConfirmed && t - this.onsetAt < MERGE_ONSET_SEC) {
+      // Повторная атака того же удара (дребезг детектора, стук клавиши): подтверждение
+      // не начинаем заново — продолжаем с прежним спектром «до удара», только продлеваем окно
+      this.onsetAt = t;
+      if (flux > this.attack.flux) this.attack = { flux, rmsDb };
+      this.seen.push('|');
+      return;
+    }
     if (this.restrikePending && !this.attackConfirmed) {
       // Прошлая атака так и не стала нотой — её перебил новый удар
       this.drop(this.onsetAt, `перебита новой атакой через ${Math.round((t - this.onsetAt) * 1000)} мс${this.lastReject ? '; ' + this.lastReject : ''}`, events);
@@ -495,9 +509,8 @@ export class Analyzer {
       fftSize: LONG_YIN,
       reference: this.preOnsetMid,
     };
-    const tol = this.params.toleranceCents;
-    const scores = new Map<number, { score: number; freq: number }>();
-    let best: number | null = null;
+    const tol = Math.min(this.params.toleranceCents, SPEC_TOL_CENTS);
+    const scores = new Map<number, { score: number; freq: number; h1: number }>();
     for (let m = KEY_LOW - 3; m <= KEY_HIGH; m++) {
       const f0 = midiToFreq(m) * Math.pow(2, expectedStretchCents(m) / 1200);
       let score = 0;
@@ -513,18 +526,42 @@ export class Analyzer {
       // Нужен рост СОБСТВЕННОГО основного тона, иначе нота «собрана» из партиалов другой
       // (A#5: его ×2 = ×3 у D#5). У басов микрофон телефона почти не слышит ×1 — там достаточно ×2.
       if (score <= 0 || !lowOk) continue;
-      scores.set(m, { score, freq });
-      if (best === null || score > scores.get(best)!.score) best = m;
+      scores.set(m, { score, freq, h1: this.peakMag(this.midMags, f0, tol) });
     }
-    if (best === null || scores.get(best)!.score < SPEC_MIN_SCORE) return null;
-    // Октавная защита: нижняя нота с почти тем же ростом объясняет и наши партиалы
+    // Кандидаты по убыванию роста; отбрасываем «склоны»: сосед ±1 с основным тоном намного громче
+    const ranked = [...scores.entries()].sort((a, b) => b[1].score - a[1].score);
+    let best: number | null = null;
+    for (const [m, r] of ranked) {
+      if (r.score < SPEC_MIN_SCORE) break;
+      const louderNeighbor = [m - 1, m + 1].some((n) => {
+        const fn = midiToFreq(n) * Math.pow(2, expectedStretchCents(n) / 1200);
+        return this.peakMag(this.midMags, fn, tol) > r.h1 * Math.pow(10, SPEC_NEIGHBOR_DB / 20);
+      });
+      if (!louderNeighbor) {
+        best = m;
+        break;
+      }
+    }
+    if (best === null) return null;
+    // Защита от «верхних» ошибок: у нижней ноты (квинта, октава, дуодецима, 2 октавы) часть партиалов
+    // совпадает с нашими. Если она тоже растёт почти так же — сыграна, скорее всего, она.
     let pick = best;
-    for (const down of [12, 24]) {
+    for (const [down, share] of [[7, 0.6], [12, 0.75], [19, 0.6], [24, 0.75]] as const) {
       const lower = scores.get(best - down);
-      if (lower && lower.score >= 0.75 * scores.get(best)!.score) pick = best - down;
+      if (lower && lower.score >= share * scores.get(best)!.score) pick = best - down;
     }
     const r = scores.get(pick)!;
     return { midi: pick, score: r.score, freq: r.freq || midiToFreq(pick) };
+  }
+
+  /** Максимум спектра в пределах допуска вокруг частоты. */
+  private peakMag(mags: Float32Array, freq: number, tolCents: number): number {
+    const binHz = this.sampleRate / ((mags.length - 1) * 2);
+    const lo = Math.max(1, Math.floor((freq * Math.pow(2, -tolCents / 1200)) / binHz));
+    const hi = Math.min(mags.length - 1, Math.ceil((freq * Math.pow(2, tolCents / 1200)) / binHz));
+    let m = 0;
+    for (let k = lo; k <= hi; k++) if (mags[k] > m) m = mags[k];
+    return m;
   }
 
   /**
@@ -580,7 +617,7 @@ export class Analyzer {
       if (!yinWillDoIt) {
         const mf = freqToMidiFloat(spec.freq);
         const cents = Math.round((mf - spec.midi) * 100);
-        this.accept({ freq: spec.freq, midi: spec.midi, cents, clarity: pitch?.clarity ?? 0 }, t, events);
+        this.accept({ freq: spec.freq, midi: spec.midi, cents, clarity: 0, source: 'spectrum' }, t, events);
       }
     }
   }

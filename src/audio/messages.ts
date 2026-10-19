@@ -13,6 +13,8 @@ export interface PitchInfo {
   midi: number;
   cents: number;
   clarity: number;
+  /** 'spectrum' — нота найдена по росту партиалов (YIN не справился), частота и центы приблизительны. */
+  source?: 'yin' | 'spectrum';
 }
 
 export interface InfoEvent {
