@@ -167,6 +167,28 @@ for (const [name, t] of [
   knownLimit(name, ok, `распознано ${got.map(midiToName).join(' ')}`);
 }
 
+// 3б. Режим проверки на живом iPhone (2026-10-20): слабые атаки через 0.5–1 с после аккорда
+// (отпускание клавиш, демпферы) давали ложное «не засчитано». Должны молча пропускаться,
+// а неправильно сыгранный аккорд — по-прежнему давать ✗.
+{
+  const sig = render(3, [{ at: 0.2, midis: [60, 64, 67] }]);
+  keyClick(sig, 1.1, 0.03, 3); // стук при отпускании клавиш
+  keyClick(sig, 2.0, 0.02, 4);
+  const ev = run(sig, (a) => a.setExpected([60, 64, 67]));
+  const checks = ev.filter((e): e is CheckEvent => e.type === 'check');
+  expect('Проверка C-E-G: аккорд + стук при отпускании — один вердикт ✓, без ложных ✗', checks.length === 1 && checks[0].allPassed,
+    checks.map((c) => (c.allPassed ? '✓' : '✗') + '@' + (c.onsetTime - 2.3).toFixed(2)).join(' '));
+}
+for (const c of [
+  { name: 'C-E-G → D-F-A (весь аккорд не тот)', expect: [60, 64, 67], play: [62, 65, 69] },
+  { name: 'C4 → D4 (не та нота)', expect: [60], play: [62] },
+]) {
+  const ev = run(render(1.2, [{ at: 0.2, midis: c.play }]), (a) => a.setExpected(c.expect));
+  const checks = ev.filter((e): e is CheckEvent => e.type === 'check');
+  expect(`Проверка ${c.name}: ждём ✗`, checks.length === 1 && !checks[0].allPassed,
+    checks.length ? checks.map((x) => (x.allPassed ? '✓' : '✗')).join(' ') : 'вердикта нет: ' + ev.filter((e) => e.type === 'dropped').map((e) => (e as { reason: string }).reason).join('; '));
+}
+
 // 4. Затухающая нота не засчитывается повторно; новый удар той же ноты — засчитывается
 {
   const ev = run(render(2.5, [{ at: 0.2, midis: [60] }, { at: 1.4, midis: [60] }]), (a) => a.setExpected([60]));

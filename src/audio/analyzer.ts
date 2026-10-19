@@ -49,6 +49,8 @@ const MID_HISTORY = 3;
  * колебанием в случайной фазе, поэтому рост бывает маленьким — строгий порог тут вреден.
  */
 const NOTE_RISE_DB = 1.5;
+/** Интервалы от ноты до её гармоник ×2…×8, полутоны. */
+const SUBHARMONIC_SEMIS = [12, 19, 24, 28, 31, 34, 36];
 /** Атака в пределах этого времени после ещё не подтверждённой — тот же удар, подтверждение продолжаем. */
 const MERGE_ONSET_SEC = 0.15;
 /** Спектральный путь: допуск частоты партиала, центы (строже общего — иначе ловим склоны соседних пиков). */
@@ -155,6 +157,8 @@ export class Analyzer {
   private readonly preOnsetMid = new Float32Array(LONG_YIN / 2 + 1);
   // «Фортепианность» удара, открывшего окно проверки
   private sessionPiano = false;
+  /** Нота, подтверждённая детектором нот для удара, открывшего окно проверки. */
+  private sessionNote: number | null = null;
   private sessionAttack: AttackInfo = { flux: 0, rmsDb: -120 };
   private sessionRef: Float32Array | null = null;
   private ignoredAttacks = 0;
@@ -410,6 +414,7 @@ export class Analyzer {
       this.dropPendingCheck(events); // недоподтверждённый прошлый вердикт — уже не актуален
       this.sessionRef = this.session.reference;
       this.sessionPiano = false;
+      this.sessionNote = null;
       this.sessionAttack = { flux, rmsDb };
     }
 
@@ -454,10 +459,32 @@ export class Analyzer {
   private emitCheck(res: Omit<CheckEvent, 'type' | 'attack'>, events: AnalyzerEvent[]): void {
     this.dropPendingCheck(events);
     if (this.sessionPiano) {
-      events.push({ type: 'check', ...res, attack: this.sessionAttack });
+      this.deliverCheck(res, events);
       return;
     }
     this.pendingCheck = { res, deadline: res.onsetTime + NOTE_AFTER_ONSET_SEC };
+  }
+
+  /**
+   * «Не засчитано» показываем, только если что-то действительно сыграно. Отпускание клавиш,
+   * стук демпферов, движение рук дают слабую атаку над звучащим аккордом: ни одна нота не прошла,
+   * у всех «не слышно»/«нет нового удара», и посторонней ноты детектор не услышал — молча пропускаем.
+   */
+  private deliverCheck(res: Omit<CheckEvent, 'type' | 'attack'>, events: AnalyzerEvent[]): void {
+    // «Посторонняя» нота — не одна из ожидаемых и не их подгармоника: по смеси звучащего аккорда
+    // YIN легко выдаёт общий «низ» (C2 под C-E-G), а стук даёт ему видимость удара
+    const sn = this.sessionNote;
+    const foreign =
+      sn !== null && !res.notes.some((n) => n.midi === sn || SUBHARMONIC_SEMIS.includes(n.midi - sn));
+    const nothingNew =
+      !res.allPassed &&
+      res.notes.every((n) => !n.passed && (!n.evidence || n.evidence.verdict === 'weak' || n.evidence.verdict === 'no-attack')) &&
+      !foreign;
+    if (nothingNew) {
+      this.drop(res.onsetTime, 'проверка: ни одна ожидаемая нота не ударена и посторонней ноты нет (отпускание клавиш?)', events, this.sessionAttack);
+      return;
+    }
+    events.push({ type: 'check', ...res, attack: this.sessionAttack });
   }
 
   private flushPendingCheck(t: number, events: AnalyzerEvent[]): void {
@@ -465,7 +492,7 @@ export class Analyzer {
     if (!pc) return;
     if (this.sessionPiano) {
       this.pendingCheck = null;
-      events.push({ type: 'check', ...pc.res, attack: this.sessionAttack });
+      this.deliverCheck(pc.res, events);
     } else if (t > pc.deadline) this.dropPendingCheck(events);
   }
 
@@ -696,7 +723,10 @@ export class Analyzer {
     this.mismatchFrames = 0;
     this.lastNote = { midi: pitch.midi, t: this.onsetAt };
     const sessionStart = this.session.isActive ? this.session.startTime : this.pendingCheck?.res.onsetTime;
-    if (sessionStart === this.onsetAt) this.sessionPiano = true;
+    if (sessionStart === this.onsetAt) {
+      this.sessionPiano = true;
+      this.sessionNote = pitch.midi;
+    }
     events.push({ type: 'note', t, pitch, attack: this.attack });
   }
 
