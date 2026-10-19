@@ -55,6 +55,11 @@ const MERGE_ONSET_SEC = 0.15;
 const SPEC_TOL_CENTS = 30;
 /** Спектральный путь: сосед ±1 полутон с основным тоном громче на столько дБ — наш «пик» лишь его склон. */
 const SPEC_NEIGHBOR_DB = 10;
+/**
+ * Сразу после удара нота ещё «нарастает» в окне анализа (85 мс) — её партиалы выглядят растущими
+ * и для следующей атаки. Столько времени после подтверждения партиалы прошлой ноты не учитываем.
+ */
+const PREV_NOTE_MASK_SEC = 0.4;
 /** Спектральный путь: партиал учитывается, если он выше фона на столько дБ. */
 const SPEC_PEAK_DB = 10;
 /** Спектральный путь: минимальный суммарный рост партиалов ноты, дБ·вес. */
@@ -132,6 +137,7 @@ export class Analyzer {
   private track: number[] = []; // дробные MIDI последних кадров после удара
   private trackRise: number[] = []; // рост партиалов в тех же кадрах, дБ
   private specCand: number | null = null; // спектральный путь: лидер по росту партиалов
+  private lastNote: { midi: number; t: number } | null = null;
   private specCount = 0;
   private seen: string[] = []; // диагностика: что видел детектор после удара
   private lastReject = '';
@@ -510,13 +516,23 @@ export class Analyzer {
       reference: this.preOnsetMid,
     };
     const tol = Math.min(this.params.toleranceCents, SPEC_TOL_CENTS);
+    // Партиалы только что сыгранной ноты: они ещё растут в окне и «подсвечивают» чужих кандидатов
+    const prev = this.lastNote && this.onsetAt - this.lastNote.t < PREV_NOTE_MASK_SEC ? this.lastNote.midi : null;
+    const prevF0 = prev !== null ? midiToFreq(prev) * Math.pow(2, expectedStretchCents(prev) / 1200) : 0;
+    const isPrevPartial = (f: number) => {
+      if (prev === null) return false;
+      for (let k = 1; k <= 8; k++) if (Math.abs(1200 * Math.log2(f / partialFreq(prevF0, k))) < 45) return true;
+      return false;
+    };
     const scores = new Map<number, { score: number; freq: number; h1: number }>();
     for (let m = KEY_LOW - 3; m <= KEY_HIGH; m++) {
+      if (m === prev) continue; // повтор той же ноты ловит YIN-путь
       const f0 = midiToFreq(m) * Math.pow(2, expectedStretchCents(m) / 1200);
       let score = 0;
       let freq = 0;
       let lowOk = false;
       for (let h = 1; h <= SPEC_WEIGHTS.length; h++) {
+        if (isPrevPartial(partialFreq(f0, h))) continue;
         const pk = partialPeak(ctx, partialFreq(f0, h), tol);
         if (pk.snr < SPEC_PEAK_DB || pk.rise === null || pk.rise <= 0) continue;
         score += SPEC_WEIGHTS[h - 1] * Math.min(pk.rise, 20);
@@ -533,7 +549,8 @@ export class Analyzer {
     let best: number | null = null;
     for (const [m, r] of ranked) {
       if (r.score < SPEC_MIN_SCORE) break;
-      const louderNeighbor = [m - 1, m + 1].some((n) => {
+      // Только что сыгранная нота громче законно — это не «склон»
+      const louderNeighbor = [m - 1, m + 1].filter((n) => n !== prev).some((n) => {
         const fn = midiToFreq(n) * Math.pow(2, expectedStretchCents(n) / 1200);
         return this.peakMag(this.midMags, fn, tol) > r.h1 * Math.pow(10, SPEC_NEIGHBOR_DB / 20);
       });
@@ -661,6 +678,13 @@ export class Analyzer {
       this.lastReject = `нет роста энергии ${midiToName(midis[0])}: ${rise.toFixed(1)} дБ (затухающая нота?)`;
       return 'pending';
     }
+    // YIN видит только что сыгранную ноту, а спектр — другую растущую: в смеси побеждает громкая
+    // затухающая нота, поэтому верим спектру (он сам подтвердит свою ноту)
+    const recent = this.lastNote && this.onsetAt - this.lastNote.t < PREV_NOTE_MASK_SEC ? this.lastNote.midi : null;
+    if (midis[0] === recent && this.specCand !== null && this.specCand !== recent) {
+      this.lastReject = `YIN видит звучащую ${midiToName(recent)}, спектр — растущую ${midiToName(this.specCand)}`;
+      return 'pending';
+    }
     this.accept({ ...pitch, cents: Math.round(detune) }, t, events);
     return 'confirmed';
   }
@@ -670,6 +694,7 @@ export class Analyzer {
     this.attackConfirmed = true;
     this.stableMidi = pitch.midi;
     this.mismatchFrames = 0;
+    this.lastNote = { midi: pitch.midi, t: this.onsetAt };
     const sessionStart = this.session.isActive ? this.session.startTime : this.pendingCheck?.res.onsetTime;
     if (sessionStart === this.onsetAt) this.sessionPiano = true;
     events.push({ type: 'note', t, pitch, attack: this.attack });

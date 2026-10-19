@@ -59,10 +59,15 @@ function run(signal: Float32Array, setup?: (a: Analyzer) => void, calibrate = tr
   return evs.filter((e) => e.type !== 'frame');
 }
 
-let pass = 0, fail = 0;
+let pass = 0, fail = 0, known = 0;
 function expect(name: string, ok: boolean, detail = '') {
   ok ? pass++ : fail++;
   console.log(`${ok ? '✓' : '✗'} ${name}${ok ? '' : '  — ' + detail}`);
+}
+/** Известное ограничение: печатаем результат, но стенд не валим. Если вдруг прошло — повод перевести в expect. */
+function knownLimit(name: string, ok: boolean, detail = '') {
+  if (!ok) known++;
+  console.log(`${ok ? '✓' : '⚠'} [известное ограничение] ${name}${ok ? '' : '  — ' + detail}`);
 }
 
 // 1. Свободный режим: одиночные ноты C2..B5
@@ -139,6 +144,8 @@ for (const [name, t] of [
   ['Трель B5/A#5 ×10 по 300 мс, щелчок пальца за 80 мс', trill(82, 83, 10, 0.3, { click: true })],
   ['Трель B5/A#5 ×10 по 300 мс, B5 тише на 4 дБ', trill(82, 83, 10, 0.3, { hiGain: 0.63 })],
   ['Трель E5/D#5 ×10 по 230 мс', trill(75, 76, 10, 0.23)],
+  ['Трель E5/D#5 ×12 по 170 мс', trill(75, 76, 12, 0.17)],
+  ['Трель B5/A#5 ×12 по 170 мс', trill(82, 83, 12, 0.17)],
   ['Трель E5/D#5 ×10 по 300 мс, лишняя атака через 100 мс после удара', trill(75, 76, 10, 0.3, { echo: true })],
 ] as const) {
   const ev = run(t.sig);
@@ -146,6 +153,18 @@ for (const [name, t] of [
   const ok = got.length === t.want.length && got.every((m, i) => m === t.want[i]);
   if (!ok && process.env.DBG) for (const e of ev) if (e.type === 'dropped') console.log('   ', e.t.toFixed(3), e.reason, '|', e.seen);
   expect(name, ok, `сыграно ${t.want.map(midiToName).join(' ')}; распознано ${got.map(midiToName).join(' ') || '—'}`);
+}
+
+// 2в. Известные ограничения трелей: очень быстрая трель с тихой верхней нотой.
+// Повторный тихий удар по ещё звучащей ноте в смеси с громкой соседней не виден ни YIN, ни спектру.
+// (Лишние ноты после трели здесь частично — артефакт модели: каждый удар = новый генератор, они бьются.)
+for (const [name, t] of [
+  ['Трель E5/D#5 ×12 по 170 мс, E5 тише на 3 дБ', trill(75, 76, 12, 0.17, { hiGain: 0.71 })],
+  ['Трель E5/D#5 ×12 по 170 мс, E5 тише на 6 дБ', trill(75, 76, 12, 0.17, { hiGain: 0.5 })],
+] as const) {
+  const got = run(t.sig).filter((e): e is NoteEvent => e.type === 'note').map((e) => e.pitch.midi);
+  const ok = got.length === t.want.length && got.every((m, i) => m === t.want[i]);
+  knownLimit(name, ok, `распознано ${got.map(midiToName).join(' ')}`);
 }
 
 // 4. Затухающая нота не засчитывается повторно; новый удар той же ноты — засчитывается
@@ -173,5 +192,5 @@ for (const [name, t] of [
   expect(`Нагрузка: 10 с звука за ${ms.toFixed(0)} мс (${((ms / 10000) * 100).toFixed(1)}% реального времени, на ПК)`, ms < 2000);
 }
 
-console.log(`\nИтого: ${pass} ✓, ${fail} ✗`);
+console.log(`\nИтого: ${pass} ✓, ${fail} ✗${known ? `, ${known} ⚠ известных ограничений` : ''}`);
 process.exit(fail ? 1 : 0);
