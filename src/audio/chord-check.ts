@@ -113,20 +113,22 @@ function localBackground(mags: Float32Array, bin: number): number {
  * Иначе в окно попадает склон соседнего пика — и C#4 «засчитывается» как C4.
  * Опора для SNR — максимум из профиля шума комнаты и локального фона спектра.
  */
-function snrAt(ctx: SpectrumContext, freq: number, tolCents: number): { snr: number; rise: number | null } {
+function snrAt(ctx: SpectrumContext, freq: number, tolCents: number): { snr: number; rise: number | null; peakHz: number } {
   const binHz = ctx.sampleRate / ctx.fftSize;
   const mags = ctx.mags;
   const maxBin = mags.length - 2;
-  if (freq / binHz >= maxBin - 1) return { snr: -Infinity, rise: null };
+  if (freq / binHz >= maxBin - 1) return { snr: -Infinity, rise: null, peakHz: freq };
   const [lo, hi] = binRange(freq, binHz, maxBin, tolCents);
   const [peak, bin] = peakAround(mags, lo, hi);
 
   let isPeak = peak > 0 && mags[bin] >= mags[bin - 1] && mags[bin] >= mags[bin + 1];
+  let peakHz = freq;
   if (isPeak) {
     const a = Math.log(mags[bin - 1] + 1e-12), b = Math.log(mags[bin] + 1e-12), c = Math.log(mags[bin + 1] + 1e-12);
     const denom = a - 2 * b + c;
     const shift = denom < 0 ? Math.max(-0.5, Math.min(0.5, (0.5 * (a - c)) / denom)) : 0;
-    const cents = 1200 * Math.log2(((bin + shift) * binHz) / freq);
+    peakHz = (bin + shift) * binHz;
+    const cents = 1200 * Math.log2(peakHz / freq);
     isPeak = Math.abs(cents) <= tolCents;
   }
 
@@ -138,7 +140,7 @@ function snrAt(ctx: SpectrumContext, freq: number, tolCents: number): { snr: num
     const [refPeak] = peakAround(ctx.reference, lo, hi);
     rise = 20 * Math.log10((peak + 1e-12) / Math.max(refPeak, ctx.noiseFloor));
   }
-  return { snr, rise };
+  return { snr, rise, peakHz };
 }
 
 /**
@@ -260,6 +262,11 @@ function octaveBoostOk(ctx: SpectrumContext, midi: number, set: Set<number>, p: 
     return 20 * Math.log10(center / ref) >= p.octaveChordDb;
   }
   return true;
+}
+
+/** SNR, рост относительно ctx.reference и уточнённая частота настоящего пика у freq. */
+export function partialPeak(ctx: SpectrumContext, freq: number, tolCents: number): { snr: number; rise: number | null; peakHz: number } {
+  return snrAt(ctx, freq, tolCents);
 }
 
 /** SNR (дБ) настоящего пика у частоты freq — для проверок вне аккорда. */

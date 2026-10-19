@@ -114,6 +114,38 @@ for (const c of cases) {
   expect(`Проверка ${c.name}: ждём ${c.want ? '✓' : '✗'}`, got === c.want, detail);
 }
 
+// 2б. Трели (с реального iPhone, отчёты 2026-10-19): предыдущая нота ещё звучит,
+// атака часто срабатывает на щелчке пальца о клавишу за ~80 мс до удара молоточка.
+function keyClick(out: Float32Array, at: number, gain = 0.03, seed = 5) {
+  const r = rand(seed);
+  const i0 = Math.floor(at * SR);
+  for (let i = 0; i < 300 && i0 + i < out.length; i++) out[i0 + i] += gain * r() * Math.exp(-i / 60);
+}
+function trill(lo: number, hi: number, n: number, stepSec: number, opts: { click?: boolean; hiGain?: number } = {}) {
+  const sig = render(0.6 + n * stepSec + 0.6, []);
+  const want: number[] = [];
+  for (let k = 0; k < n; k++) {
+    const m = k % 2 ? lo : hi;
+    const at = 0.4 + k * stepSec;
+    if (opts.click) keyClick(sig, at - 0.08, 0.03, 11 + k);
+    strike(sig, at, m, m === hi ? 0.2 * (opts.hiGain ?? 1) : 0.2, 1.2, 50 + k);
+    want.push(m);
+  }
+  return { sig, want };
+}
+for (const [name, t] of [
+  ['Трель B5/A#5 ×10 по 300 мс', trill(82, 83, 10, 0.3)],
+  ['Трель B5/A#5 ×10 по 300 мс, щелчок пальца за 80 мс', trill(82, 83, 10, 0.3, { click: true })],
+  ['Трель B5/A#5 ×10 по 300 мс, B5 тише на 4 дБ', trill(82, 83, 10, 0.3, { hiGain: 0.63 })],
+  ['Трель E5/D#5 ×10 по 230 мс', trill(75, 76, 10, 0.23)],
+] as const) {
+  const ev = run(t.sig);
+  const got = ev.filter((e): e is NoteEvent => e.type === 'note').map((e) => e.pitch.midi);
+  const ok = got.length === t.want.length && got.every((m, i) => m === t.want[i]);
+  if (!ok && process.env.DBG) for (const e of ev) if (e.type === 'dropped') console.log('   ', e.t.toFixed(3), e.reason, '|', e.seen);
+  expect(name, ok, `сыграно ${t.want.map(midiToName).join(' ')}; распознано ${got.map(midiToName).join(' ') || '—'}`);
+}
+
 // 4. Затухающая нота не засчитывается повторно; новый удар той же ноты — засчитывается
 {
   const ev = run(render(2.5, [{ at: 0.2, midis: [60] }, { at: 1.4, midis: [60] }]), (a) => a.setExpected([60]));

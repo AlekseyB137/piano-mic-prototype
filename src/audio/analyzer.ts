@@ -2,9 +2,9 @@ import { FFT, hannWindow } from './fft';
 import { YinDetector } from './pitch-yin';
 import { SpectralFluxOnset } from './onset';
 import { NoiseCalibrator } from './noise';
-import { countTunedPeaks, evaluateNotes, partialSnrDb, type NoteEvidence, type SpectrumContext } from './chord-check';
+import { countTunedPeaks, evaluateNotes, partialFreq, partialPeak, partialSnrDb, type NoteEvidence, type SpectrumContext } from './chord-check';
 import { CheckSession } from './check-session';
-import { expectedStretchCents, freqToMidiFloat, midiToFreq, midiToName } from './notes';
+import { expectedStretchCents, freqToMidiFloat, KEY_HIGH, KEY_LOW, midiToFreq, midiToName } from './notes';
 import { DEFAULT_PARAMS, type AnalyzerParams } from './params';
 import type { AnalyzerEvent, AttackInfo, CheckEvent, PitchInfo } from './messages';
 
@@ -41,6 +41,24 @@ const SAME_STRIKE_SEC = 0.08;
 const ODD_PARTIAL_DB = 8;
 /** Сколько последних малых спектров храним, чтобы взять спектр ДО атаки (детектор срабатывает с задержкой). */
 const SMALL_HISTORY = 4;
+/** История средних спектров (кадр = 2 hop ≈ 21 мс): самый старый — ~40–60 мс до атаки. */
+const MID_HISTORY = 3;
+/**
+ * Нота должна «не затухать» после атаки: максимум роста партиалов за кадры подтверждения ≥ этого, дБ.
+ * Затухающая предыдущая нота даёт −1…−8 дБ; повторный удар той же ноты складывается со старым
+ * колебанием в случайной фазе, поэтому рост бывает маленьким — строгий порог тут вреден.
+ */
+const NOTE_RISE_DB = 1.5;
+/** Спектральный путь: партиал учитывается, если он выше фона на столько дБ. */
+const SPEC_PEAK_DB = 10;
+/** Спектральный путь: минимальный суммарный рост партиалов ноты, дБ·вес. */
+const SPEC_MIN_SCORE = 8;
+/** Спектральный путь: сколько кадров подряд должна побеждать одна и та же нота. */
+const SPEC_FRAMES = 2;
+/** Ниже этой частоты основного тона спектральный путь допускает рост только ×2 (слабый бас микрофона). */
+const SPEC_WEAK_F0_HZ = 150;
+/** Веса партиалов ×1…×4 в оценке роста. */
+const SPEC_WEIGHTS = [1, 1, 0.6, 0.4];
 /** Минимальный порог атаки после калибровки: в очень тихой комнате иначе срабатывают согласные речи. */
 const MIN_ONSET_DELTA = 0.01;
 /** Фон по умолчанию до калибровки. */
@@ -106,6 +124,9 @@ export class Analyzer {
   private attack: AttackInfo = { flux: 0, rmsDb: -120 };
   private attackConfirmed = false;
   private track: number[] = []; // дробные MIDI последних кадров после удара
+  private trackRise: number[] = []; // рост партиалов в тех же кадрах, дБ
+  private specCand: number | null = null; // спектральный путь: лидер по росту партиалов
+  private specCount = 0;
   private seen: string[] = []; // диагностика: что видел детектор после удара
   private lastReject = '';
   // Малые спектры последних hop'ов и спектр до текущей атаки — проверка «нота действительно ударена»
@@ -113,6 +134,13 @@ export class Analyzer {
   private smallHistPos = 0;
   private readonly preOnsetSmall: Float32Array;
   private hasPreOnset = false;
+  // Среднее окно 4096 (85 мс, ~12 Гц/бин) для спектрального пути: полутона в 5-й октаве уже различимы
+  private readonly midFft = new FFT(LONG_YIN);
+  private readonly midWin = hannWindow(LONG_YIN);
+  private readonly midMags = new Float32Array(LONG_YIN / 2 + 1);
+  private readonly midHist: Float32Array[] = [];
+  private midHistPos = 0;
+  private readonly preOnsetMid = new Float32Array(LONG_YIN / 2 + 1);
   // «Фортепианность» удара, открывшего окно проверки
   private sessionPiano = false;
   private sessionAttack: AttackInfo = { flux: 0, rmsDb: -120 };
@@ -144,6 +172,7 @@ export class Analyzer {
     this.bigMags = new Float32Array(this.bigN / 2 + 1);
     this.prevBigMags = new Float32Array(this.bigN / 2 + 1);
     for (let i = 0; i < SMALL_HISTORY; i++) this.smallHist.push(new Float32Array(SMALL_FFT / 2 + 1));
+    for (let i = 0; i < MID_HISTORY; i++) this.midHist.push(new Float32Array(LONG_YIN / 2 + 1));
     this.preOnsetSmall = new Float32Array(SMALL_FFT / 2 + 1);
     this.yin = new YinDetector(sampleRate, SMALL_FFT, 60, 2200);
     this.yinLong = new YinDetector(sampleRate, LONG_YIN, 40, 400);
@@ -256,6 +285,10 @@ export class Analyzer {
     this.copyLast(this.bigBuf);
     this.bigFft.magnitudes(this.bigBuf, this.bigWin, this.bigMags);
     if (this.calib.active) this.feedCalibration(events);
+    this.copyLast(this.longBuf);
+    this.midFft.magnitudes(this.longBuf, this.midWin, this.midMags);
+    this.midHist[this.midHistPos].set(this.midMags);
+    this.midHistPos = (this.midHistPos + 1) % MID_HISTORY;
     const ctx = this.spectrumContext(this.session.isActive ? this.session.reference : null);
 
     // --- Высота ---
@@ -378,8 +411,12 @@ export class Analyzer {
     this.attack = { flux, rmsDb };
     // Спектр до удара: детектор отмечает атаку на кадр позже, поэтому берём самый старый из истории (~30 мс назад)
     this.preOnsetSmall.set(this.smallHist[this.smallHistPos]);
-    this.hasPreOnset = this.hopIndex > SMALL_HISTORY;
+    this.preOnsetMid.set(this.midHist[this.midHistPos]);
+    this.hasPreOnset = this.hopIndex > 2 * MID_HISTORY + 2;
     this.track = [];
+    this.trackRise = [];
+    this.specCand = null;
+    this.specCount = 0;
     this.seen = [];
     this.lastReject = '';
   }
@@ -443,51 +480,129 @@ export class Analyzer {
   }
 
   /**
+   * Спектральный путь: какая клавиша «ударена» — чьи партиалы (×1…×4) сильнее всего выросли
+   * в среднем спектре (4096) относительно спектра до атаки. Затухающая предыдущая нота не растёт,
+   * поэтому трель и легато не путают детектор. Из нот с почти равным ростом берём нижнюю
+   * в октавном ряду (у ноты октавой выше партиалы — подмножество наших).
+   */
+  private risingNote(): { midi: number; score: number; freq: number } | null {
+    if (!this.hasPreOnset) return null;
+    const ctx: SpectrumContext = {
+      mags: this.midMags,
+      noise: null,
+      noiseFloor: this.noiseSpectrum ? CALIBRATED_FLOOR : UNCALIBRATED_FLOOR,
+      sampleRate: this.sampleRate,
+      fftSize: LONG_YIN,
+      reference: this.preOnsetMid,
+    };
+    const tol = this.params.toleranceCents;
+    const scores = new Map<number, { score: number; freq: number }>();
+    let best: number | null = null;
+    for (let m = KEY_LOW - 3; m <= KEY_HIGH; m++) {
+      const f0 = midiToFreq(m) * Math.pow(2, expectedStretchCents(m) / 1200);
+      let score = 0;
+      let freq = 0;
+      let lowOk = false;
+      for (let h = 1; h <= SPEC_WEIGHTS.length; h++) {
+        const pk = partialPeak(ctx, partialFreq(f0, h), tol);
+        if (pk.snr < SPEC_PEAK_DB || pk.rise === null || pk.rise <= 0) continue;
+        score += SPEC_WEIGHTS[h - 1] * Math.min(pk.rise, 20);
+        if (h === 1 || (h === 2 && f0 < SPEC_WEAK_F0_HZ)) lowOk = true;
+        if (!freq) freq = pk.peakHz / (h * Math.sqrt(1 + 3e-4 * h * h));
+      }
+      // Нужен рост СОБСТВЕННОГО основного тона, иначе нота «собрана» из партиалов другой
+      // (A#5: его ×2 = ×3 у D#5). У басов микрофон телефона почти не слышит ×1 — там достаточно ×2.
+      if (score <= 0 || !lowOk) continue;
+      scores.set(m, { score, freq });
+      if (best === null || score > scores.get(best)!.score) best = m;
+    }
+    if (best === null || scores.get(best)!.score < SPEC_MIN_SCORE) return null;
+    // Октавная защита: нижняя нота с почти тем же ростом объясняет и наши партиалы
+    let pick = best;
+    for (const down of [12, 24]) {
+      const lower = scores.get(best - down);
+      if (lower && lower.score >= 0.75 * scores.get(best)!.score) pick = best - down;
+    }
+    const r = scores.get(pick)!;
+    return { midi: pick, score: r.score, freq: r.freq || midiToFreq(pick) };
+  }
+
+  /**
    * Подтверждение ноты после удара.
-   * Струна не меняет высоту без нового удара, а после удара её высота неподвижна
-   * и стоит в строе. Поэтому нота = атака + CONFIRM_FRAMES кадров подряд с той же нотой,
-   * дрейфом ≤ maxDriftCents и отклонением от строя ≤ maxDetuneCents.
+   * Основной путь — YIN: CONFIRM_FRAMES кадров подряд с той же нотой, дрейф ≤ maxDriftCents,
+   * отклонение от строя (с растяжкой) ≤ maxDetuneCents, партиалы не затухают.
+   * Запасной путь — спектральный (risingNote): когда YIN молчит, показывает затухающую
+   * предыдущую ноту или «стянут» смесью двух звучащих нот (трель, легато).
    * Форму огибающей НЕ проверяем: в быстрой игре атака часто срабатывает на щелчке
    * пальца о клавишу за 50–100 мс до звука, и звук потом громче щелчка.
    */
   private confirmNote(pitch: PitchInfo | null, windowSec: number, t: number, events: AnalyzerEvent[]): void {
-    const p = this.params;
-    if (!pitch) {
-      this.track = [];
-      if (this.restrikePending && t - this.onsetAt >= windowSec / 2) this.seen.push('·');
-      if (++this.silentFrames >= 5) this.stableMidi = null;
-      if (this.restrikePending && t - this.onsetAt > NOTE_AFTER_ONSET_SEC) {
-        this.restrikePending = false;
-        this.drop(this.onsetAt, this.lastReject || 'нет устойчивой высоты', events);
-      }
-      return;
-    }
-    this.silentFrames = 0;
-    // Звучит что-то другое (например, голос поверх затухающей ноты) — гасим подсветку
-    if (this.stableMidi !== null && pitch.midi !== this.stableMidi) {
-      if (++this.mismatchFrames >= 5) this.stableMidi = null;
-    } else this.mismatchFrames = 0;
+    if (pitch) {
+      this.silentFrames = 0;
+      // Звучит что-то другое (например, голос поверх затухающей ноты) — гасим подсветку
+      if (this.stableMidi !== null && pitch.midi !== this.stableMidi) {
+        if (++this.mismatchFrames >= 5) this.stableMidi = null;
+      } else this.mismatchFrames = 0;
+    } else if (++this.silentFrames >= 5) this.stableMidi = null;
 
     if (!this.restrikePending) return;
     if (t - this.onsetAt > NOTE_AFTER_ONSET_SEC) {
       this.restrikePending = false;
-      this.drop(this.onsetAt, this.lastReject || (this.seen.length ? 'мало кадров с высотой' : 'нет высоты'), events);
+      this.drop(this.onsetAt, this.lastReject || (this.seen.some((x) => x !== '·') ? 'мало кадров с высотой' : 'нет устойчивой высоты'), events);
       return;
     }
     // Сразу после удара окно в основном содержит ПРЕДЫДУЩИЙ звук — пропускаем
-    if (t - this.onsetAt < windowSec / 2) return;
+    if (t - this.onsetAt < Math.min(windowSec, SMALL_FFT / this.sampleRate) / 2) return;
 
+    // Спектральный кандидат — считаем каждый кадр, он нужен, если YIN не справится
+    const spec = this.risingNote();
+    if (spec && spec.midi === this.specCand) this.specCount++;
+    else {
+      this.specCand = spec ? spec.midi : null;
+      this.specCount = spec ? 1 : 0;
+    }
+
+    let yinMidi: number | null = null;
+    if (pitch) {
+      const res = this.yinStep(pitch, events, t);
+      if (res === 'confirmed') return;
+      yinMidi = Math.round(freqToMidiFloat(pitch.freq));
+    } else {
+      this.track = [];
+      this.trackRise = [];
+      this.seen.push(spec ? `·(${midiToName(spec.midi)})` : '·');
+    }
+
+    // YIN не подтвердил. Если спектр уверенно показывает растущую ноту — берём её,
+    // кроме случая, когда YIN видит ту же ноту и ещё не набрал кадров (дадим ему шанс).
+    if (spec && this.specCount >= SPEC_FRAMES) {
+      const yinWillDoIt = yinMidi === spec.midi && this.lastReject === '' && this.track.length < CONFIRM_FRAMES;
+      if (!yinWillDoIt) {
+        const mf = freqToMidiFloat(spec.freq);
+        const cents = Math.round((mf - spec.midi) * 100);
+        this.accept({ freq: spec.freq, midi: spec.midi, cents, clarity: pitch?.clarity ?? 0 }, t, events);
+      }
+    }
+  }
+
+  /** Шаг основного (YIN) пути. */
+  private yinStep(pitch: PitchInfo, events: AnalyzerEvent[], t: number): 'confirmed' | 'pending' {
+    const p = this.params;
     const mf = freqToMidiFloat(pitch.freq);
     const c = Math.round((mf - Math.round(mf)) * 100);
     this.seen.push(`${midiToName(Math.round(mf))}${c >= 0 ? '+' : ''}${c}`);
     this.track.push(mf);
-    if (this.track.length > CONFIRM_FRAMES) this.track.shift();
-    if (this.track.length < CONFIRM_FRAMES) return;
+    this.trackRise.push(this.noteRiseDb(Math.round(mf)));
+    if (this.track.length > CONFIRM_FRAMES) {
+      this.track.shift();
+      this.trackRise.shift();
+    }
+    if (this.track.length < CONFIRM_FRAMES) return 'pending';
 
     const midis = this.track.map(Math.round);
     if (!midis.every((m) => m === midis[0])) {
       this.lastReject = 'высота прыгает между нотами';
-      return;
+      return 'pending';
     }
     const drift = (Math.max(...this.track) - Math.min(...this.track)) * 100;
     const mean = this.track.reduce((a, b) => a + b, 0) / this.track.length;
@@ -496,27 +611,31 @@ export class Analyzer {
     const offTune = detune - expectedStretchCents(midis[0]);
     if (drift > p.maxDriftCents) {
       this.lastReject = `дрейф ${Math.round(drift)} ц > ${p.maxDriftCents}`;
-      return;
+      return 'pending';
     }
     if (Math.abs(offTune) > p.maxDetuneCents) {
       this.lastReject = `мимо строя: ${Math.round(detune)} ц (ожидалось ${Math.round(expectedStretchCents(midis[0]))}±${p.maxDetuneCents})`;
-      return;
+      return 'pending';
     }
-    // Нота должна быть ударена ПОСЛЕ атаки: её партиалы выросли относительно спектра до атаки.
+    // Нота должна быть ударена ПОСЛЕ атаки: её партиалы не затухают относительно спектра до атаки.
     // Иначе это ещё звучащая предыдущая нота, а атака была щелчком пальца или стуком.
-    const rise = this.noteRiseDb(midis[0]);
-    if (rise < p.riseDb) {
+    const rise = Math.max(...this.trackRise);
+    if (rise < NOTE_RISE_DB) {
       this.lastReject = `нет роста энергии ${midiToName(midis[0])}: ${rise.toFixed(1)} дБ (затухающая нота?)`;
-      return;
+      return 'pending';
     }
+    this.accept({ ...pitch, cents: Math.round(detune) }, t, events);
+    return 'confirmed';
+  }
 
+  private accept(pitch: PitchInfo, t: number, events: AnalyzerEvent[]): void {
     this.restrikePending = false;
     this.attackConfirmed = true;
     this.stableMidi = pitch.midi;
     this.mismatchFrames = 0;
     const sessionStart = this.session.isActive ? this.session.startTime : this.pendingCheck?.res.onsetTime;
     if (sessionStart === this.onsetAt) this.sessionPiano = true;
-    events.push({ type: 'note', t, pitch: { ...pitch, cents: Math.round(detune) }, attack: this.attack });
+    events.push({ type: 'note', t, pitch, attack: this.attack });
   }
 
   private preview(mags: Float32Array): Float32Array {
