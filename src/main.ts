@@ -253,6 +253,9 @@ readout.onClear = () => {
   sendExpected();
 };
 
+// Любое касание экрана — стук по телефону рядом с микрофоном: ненадолго не открываем проверку
+document.addEventListener('pointerdown', () => capture.post({ type: 'mute', seconds: 0.6 }), { capture: true });
+
 $('#btn-log-clear').addEventListener('click', () => {
   log.clear();
   dropped.length = 0;

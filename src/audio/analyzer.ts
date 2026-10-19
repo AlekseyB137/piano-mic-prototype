@@ -53,6 +53,9 @@ const NOTE_RISE_DB = 1.5;
 const SUBHARMONIC_SEMIS = [12, 19, 24, 28, 31, 34, 36];
 /** После выбора нот на экране столько секунд атаки не открывают проверку: стук пальца по телефону. */
 const SCREEN_TAP_MUTE_SEC = 0.6;
+/** Атака тише медианы недавних засчитанных ударов больше чем на столько дБ окно проверки не открывает. */
+const STRIKE_LEVEL_MARGIN_DB = 20;
+const STRIKE_HISTORY = 6;
 /** Окно, закрытое новым ударом раньше этого и без единой засчитанной ноты, — предвестник удара (щелчок пальца). */
 const PRECURSOR_SEC = 0.3;
 /** История энергии полосы 2–6 кГц по hop'ам (≈ 11 мс). */
@@ -173,6 +176,8 @@ export class Analyzer {
   private sessionRef: Float32Array | null = null;
   private ignoredAttacks = 0;
   private checkMuteUntil = 0;
+  /** Уровни атак недавних ударов, давших засчитанные ноты, дБFS. */
+  private strikeLevels: number[] = [];
   /** Вердикт проверки, ждущий подтверждения «это был удар по струне». */
   private pendingCheck: { res: Omit<CheckEvent, 'type' | 'attack'>; deadline: number } | null = null;
 
@@ -233,6 +238,11 @@ export class Analyzer {
     this.checkMuteUntil = this.samples / this.sampleRate + SCREEN_TAP_MUTE_SEC;
     this.session.cancel();
     this.pendingCheck = null;
+  }
+
+  /** Касание экрана: столько секунд атаки не открывают окно проверки. */
+  muteCheck(seconds: number): void {
+    this.checkMuteUntil = Math.max(this.checkMuteUntil, this.samples / this.sampleRate + seconds);
   }
 
   startCalibration(seconds: number): void {
@@ -445,14 +455,21 @@ export class Analyzer {
     // аккордом (отпускание клавиш, демпферы) окно не трогают — ни новых вердиктов, ни закрытия текущего
     const p = this.params;
     const tapMuted = t < this.checkMuteUntil;
-    const strikeLike = !tapMuted && (p.checkAttackHfDb <= 0 || hfRiseDb >= p.checkAttackHfDb);
+    const hfOk = p.checkAttackHfDb <= 0 || hfRiseDb >= p.checkAttackHfDb;
+    // Громкость относительно недавних настоящих ударов (пока их нет — не проверяем)
+    const lv = [...this.strikeLevels].sort((a, b) => a - b);
+    const levelRef = lv.length ? lv[lv.length >> 1] - STRIKE_LEVEL_MARGIN_DB : -Infinity;
+    const levelOk = rmsDb >= levelRef;
+    const strikeLike = !tapMuted && hfOk && levelOk;
     if (this.expected.length > 0 && !strikeLike) {
       events.push({
         type: 'dropped',
         t,
         reason: tapMuted
-          ? 'проверка: сразу после выбора нот на экране (стук по телефону?)'
-          : `проверка: атака без подъёма ВЧ (+${hfRiseDb.toFixed(1)} дБ < ${p.checkAttackHfDb}) — не удар`,
+          ? 'проверка: сразу после касания экрана (стук по телефону?)'
+          : !hfOk
+            ? `проверка: атака без подъёма ВЧ (+${hfRiseDb.toFixed(1)} дБ < ${p.checkAttackHfDb}) — не удар`
+            : `проверка: атака тише недавних ударов (${rmsDb.toFixed(0)} < ${levelRef.toFixed(0)} дБFS) — не удар`,
         attack: { flux, rmsDb, hfRiseDb },
         seen: '',
       });
@@ -536,6 +553,10 @@ export class Analyzer {
     if (nothingNew) {
       this.drop(res.onsetTime, 'проверка: ни одна ожидаемая нота не ударена и посторонней ноты нет (отпускание клавиш?)', events, this.sessionAttack);
       return;
+    }
+    if (res.notes.some((n) => n.passed)) {
+      this.strikeLevels.push(this.sessionAttack.rmsDb);
+      if (this.strikeLevels.length > STRIKE_HISTORY) this.strikeLevels.shift();
     }
     events.push({ type: 'check', ...res, attack: this.sessionAttack });
   }

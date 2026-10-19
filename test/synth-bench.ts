@@ -193,6 +193,33 @@ for (const [name, t] of [
   expect('Проверка C-E-G: щелчок пальца за 160 мс до аккорда — один вердикт ✓', checks.length === 1 && checks[0].allPassed,
     checks.map((c) => (c.allPassed ? '✓' : '✗') + '@' + (c.onsetTime - 2.3).toFixed(2)).join(' ') || 'вердикта нет');
 }
+// Живой отчёт 2026-10-20: C5-E5-G5 ×3, затем C5+G5 без E5 — E5 «засчитывалась» по остатку звучания
+for (const [label, chord, missing] of [
+  ['C5-E5-G5, потом без E5', [72, 76, 79], 76],
+  ['C4-E4-G4, потом без E4', [60, 64, 67], 64],
+  ['C3-E3-G3, потом без E3', [48, 52, 55], 52],
+] as const) {
+  const sig = render(5, []);
+  const at = [0.3, 1.8, 3.3];
+  at.forEach((t, k) => chord.forEach((m, j) => strike(sig, t + j * 0.01, m, 0.2, 4, 200 + k * 7 + j)));
+  // 4-й удар — без средней ноты; прошлые аккорды ещё звучат (цифровое пианино, долгое затухание)
+  const sig2 = new Float32Array(Math.floor(6.5 * SR));
+  sig2.set(sig);
+  chord.filter((m) => m !== missing).forEach((m, j) => strike(sig2, 4.8 + j * 0.01, m, 0.2, 1.5, 300 + j));
+  const ev = run(sig2, (a) => a.setExpected([...chord]));
+  const checks = ev.filter((e): e is CheckEvent => e.type === 'check');
+  const verdicts = checks.map((c) => (c.allPassed ? '✓' : '✗')).join('');
+  expect(`Проверка ${label}: ждём ✓✓✓✗`, verdicts === '✓✓✓✗',
+    checks.map((c) => (c.allPassed ? '✓' : '✗') + '@' + (c.onsetTime - 2.3).toFixed(2) + '[' + c.notes.map((n) => midiToName(n.midi) + ':' + (n.passed ? 'ok' : n.evidence?.verdict)).join(',') + ']').join(' '));
+}
+{
+  // Живой отчёт: тихие щелчки (касания экрана, −58…−68 дБFS) с подъёмом ВЧ давали ложные ✗
+  const sig = render(5, [0.3, 1.3, 2.3].map((at) => ({ at, midis: [72, 76, 79] })));
+  [3.3, 3.7, 4.1].forEach((t, k) => keyClick(sig, t, 0.004, 20 + k));
+  const ev = run(sig, (a) => a.setExpected([72, 76, 79]));
+  const verdicts = ev.filter((e): e is CheckEvent => e.type === 'check').map((c) => (c.allPassed ? '✓' : '✗')).join('');
+  expect('Проверка C5-E5-G5 ×3, затем тихие щелчки — только ✓✓✓', verdicts === '✓✓✓', verdicts);
+}
 for (const c of [
   { name: 'C-E-G → D-F-A (весь аккорд не тот)', expect: [60, 64, 67], play: [62, 65, 69] },
   { name: 'C4 → D4 (не та нота)', expect: [60], play: [62] },

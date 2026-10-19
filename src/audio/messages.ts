@@ -6,7 +6,9 @@ import type { CheckResult } from './check-session';
 export type WorkletInMessage =
   | { type: 'params'; params: Partial<AnalyzerParams> }
   | { type: 'expected'; midis: number[] }
-  | { type: 'calibrate'; seconds: number };
+  | { type: 'calibrate'; seconds: number }
+  /** Касание экрана: столько секунд атаки не открывают проверку (стук пальца по телефону). */
+  | { type: 'mute'; seconds: number };
 
 export interface PitchInfo {
   freq: number;

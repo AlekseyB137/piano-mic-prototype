@@ -214,11 +214,14 @@ export function evaluateNotes(ctx: SpectrumContext, expected: number[], p: Chord
       if (v >= p.snrDb && v >= h1.snrDb - p.octaveMarginDb) octaveDown = true;
     }
 
-    // Новый удар: хотя бы одна сильная собственная гармоника заметно выросла
+    // Новый удар: должны вырасти минимум ДВА сильных партиала (если их столько есть).
+    // Один «растущий» партиал даёт и остаток прошлого аккорда, подсвеченный шумом удара
+    // соседних нот (живой отчёт: E5 без удара засчитывалась на 10–11 дБ).
     let rising = true;
     if (ctx.reference && p.riseDb > 0) {
       const pool = strongOwn.length > 0 ? strongOwn : harmonics.filter((x) => x.snrDb >= p.snrDb);
-      rising = pool.some((x) => x.riseDb !== null && x.riseDb >= p.riseDb);
+      const risen = pool.filter((x) => x.riseDb !== null && x.riseDb >= p.riseDb).length;
+      rising = risen >= Math.min(2, pool.length) && risen > 0;
     }
 
     const positive = own.length ? own : harmonics;

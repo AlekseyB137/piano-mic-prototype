@@ -34,6 +34,9 @@ class PianoAnalyzerProcessor extends AudioWorkletProcessor {
       case 'calibrate':
         this.analyzer.startCalibration(msg.seconds);
         break;
+      case 'mute':
+        this.analyzer.muteCheck(msg.seconds);
+        break;
     }
   }
 
