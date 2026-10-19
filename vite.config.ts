@@ -15,10 +15,18 @@ function buildId(): string {
 
 // `npm run dev:https` — самоподписанный HTTPS для теста в мобильном браузере по Wi‑Fi.
 // Для Telegram нужен настоящий сертификат — используйте туннель (cloudflared) или деплой.
+const BUILD_ID = buildId();
+
+// Номер сборки ещё и в <meta> страницы: по нему приложение узнаёт, что на сервере новая версия
+const buildIdMeta = {
+  name: 'build-id-meta',
+  transformIndexHtml: (html: string) => html.replace('</head>', `  <meta name="build-id" content="${BUILD_ID}" />\n  </head>`),
+};
+
 export default defineConfig(({ mode }) => ({
   base: './',
-  define: { __BUILD_ID__: JSON.stringify(buildId()) },
-  plugins: mode === 'https' ? [basicSsl()] : [],
+  define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
+  plugins: [buildIdMeta, ...(mode === 'https' ? [basicSsl()] : [])],
   server: {
     host: true,
     allowedHosts: true, // чтобы работали адреса туннелей *.trycloudflare.com / *.ngrok-free.app

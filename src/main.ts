@@ -1,5 +1,6 @@
 import './style.css';
 import { initTelegram, type TelegramEnv } from './telegram';
+import { checkForUpdate } from './update-check';
 import { AudioCapture, MicError, type CaptureInfo } from './audio/capture';
 import { DEFAULT_PARAMS, type AnalyzerParams } from './audio/params';
 import type { AnalyzerEvent, FrameEvent, InfoEvent } from './audio/messages';
@@ -437,3 +438,4 @@ requestAnimationFrame(render);
 
 setMode('free');
 refreshInfo();
+void checkForUpdate(__BUILD_ID__, () => !capture.running, (m) => log.add(m, 'info'));
