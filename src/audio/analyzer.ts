@@ -51,6 +51,10 @@ const MID_HISTORY = 3;
 const NOTE_RISE_DB = 1.5;
 /** Интервалы от ноты до её гармоник ×2…×8, полутоны. */
 const SUBHARMONIC_SEMIS = [12, 19, 24, 28, 31, 34, 36];
+/** После выбора нот на экране столько секунд атаки не открывают проверку: стук пальца по телефону. */
+const SCREEN_TAP_MUTE_SEC = 0.6;
+/** Окно, закрытое новым ударом раньше этого и без единой засчитанной ноты, — предвестник удара (щелчок пальца). */
+const PRECURSOR_SEC = 0.3;
 /** История энергии полосы 2–6 кГц по hop'ам (≈ 11 мс). */
 const HF_HISTORY = 16;
 const HF_LO_HZ = 2000;
@@ -168,6 +172,7 @@ export class Analyzer {
   private sessionAttack: AttackInfo = { flux: 0, rmsDb: -120, hfRiseDb: 0 };
   private sessionRef: Float32Array | null = null;
   private ignoredAttacks = 0;
+  private checkMuteUntil = 0;
   /** Вердикт проверки, ждущий подтверждения «это был удар по струне». */
   private pendingCheck: { res: Omit<CheckEvent, 'type' | 'attack'>; deadline: number } | null = null;
 
@@ -225,6 +230,7 @@ export class Analyzer {
 
   setExpected(midis: number[]): void {
     this.expected = Array.from(new Set(midis)).sort((a, b) => a - b);
+    this.checkMuteUntil = this.samples / this.sampleRate + SCREEN_TAP_MUTE_SEC;
     this.session.cancel();
     this.pendingCheck = null;
   }
@@ -438,19 +444,25 @@ export class Analyzer {
     // Окно проверки открывает только «настоящий» удар (подъём ВЧ); слабые атаки над звучащим
     // аккордом (отпускание клавиш, демпферы) окно не трогают — ни новых вердиктов, ни закрытия текущего
     const p = this.params;
-    const strikeLike = p.checkAttackHfDb <= 0 || hfRiseDb >= p.checkAttackHfDb;
+    const tapMuted = t < this.checkMuteUntil;
+    const strikeLike = !tapMuted && (p.checkAttackHfDb <= 0 || hfRiseDb >= p.checkAttackHfDb);
     if (this.expected.length > 0 && !strikeLike) {
       events.push({
         type: 'dropped',
         t,
-        reason: `проверка: атака без подъёма ВЧ (+${hfRiseDb.toFixed(1)} дБ < ${p.checkAttackHfDb}) — не удар`,
+        reason: tapMuted
+          ? 'проверка: сразу после выбора нот на экране (стук по телефону?)'
+          : `проверка: атака без подъёма ВЧ (+${hfRiseDb.toFixed(1)} дБ < ${p.checkAttackHfDb}) — не удар`,
         attack: { flux, rmsDb, hfRiseDb },
         seen: '',
       });
     }
     // Если новая атака закрыла предыдущее окно проверки — решаем его судьбу со СТАРЫМИ флагами
     const prev = strikeLike ? this.session.onOnset(t, this.expected, this.hasPrevBig ? this.prevBigMags : null, p.checkMinHits) : null;
-    if (prev) this.emitCheck(prev, events);
+    if (prev && !prev.allPassed && prev.notes.every((n) => !n.passed) && t - prev.onsetTime < PRECURSOR_SEC) {
+      // Окно открыл щелчок пальца о клавишу, а настоящий удар пришёл следом — вердикт предвестника не нужен
+      this.drop(prev.onsetTime, `проверка: предвестник удара (щелчок за ${Math.round((t - prev.onsetTime) * 1000)} мс до удара)`, events, this.sessionAttack);
+    } else if (prev) this.emitCheck(prev, events);
     if (this.session.isActive && this.session.startTime === t) {
       this.dropPendingCheck(events); // недоподтверждённый прошлый вердикт — уже не актуален
       this.sessionRef = this.session.reference;

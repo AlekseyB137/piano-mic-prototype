@@ -184,6 +184,15 @@ for (const [name, t] of [
   expect('Проверка C-E-G: аккорд + стук при отпускании — один вердикт ✓, без ложных ✗', checks.length === 1 && checks[0].allPassed,
     checks.map((c) => (c.allPassed ? '✓' : '✗') + '@' + (c.onsetTime - 2.3).toFixed(2)).join(' '));
 }
+{
+  // Щелчок пальца о клавишу за 160 мс до удара (живой отчёт): только один вердикт ✓
+  const sig = render(1.6, [{ at: 0.36, midis: [60, 64, 67] }]);
+  keyClick(sig, 0.2, 0.05, 8);
+  const ev = run(sig, (a) => a.setExpected([60, 64, 67]));
+  const checks = ev.filter((e): e is CheckEvent => e.type === 'check');
+  expect('Проверка C-E-G: щелчок пальца за 160 мс до аккорда — один вердикт ✓', checks.length === 1 && checks[0].allPassed,
+    checks.map((c) => (c.allPassed ? '✓' : '✗') + '@' + (c.onsetTime - 2.3).toFixed(2)).join(' ') || 'вердикта нет');
+}
 for (const c of [
   { name: 'C-E-G → D-F-A (весь аккорд не тот)', expect: [60, 64, 67], play: [62, 65, 69] },
   { name: 'C4 → D4 (не та нота)', expect: [60], play: [62] },
