@@ -7,6 +7,8 @@ export interface ChordCheckParams {
   minHarmonics: number;
   octaveMarginDb: number;
   riseDb: number;
+  /** Аккорд: нота тише самой громкой ноты аккорда больше чем на столько дБ — не засчитываем (0 — выкл.). */
+  chordBalanceDb: number;
   /** Октавный аккорд: чётный партиал нижней ноты должен быть выше соседних на столько дБ (0 — выкл.). */
   octaveChordDb: number;
 }
@@ -33,7 +35,7 @@ export interface HarmonicEvidence {
   shared: boolean;
 }
 
-export type NoteVerdict = 'ok' | 'weak' | 'octave-up' | 'octave-down' | 'no-attack';
+export type NoteVerdict = 'ok' | 'weak' | 'octave-up' | 'octave-down' | 'no-attack' | 'faint';
 
 export interface NoteEvidence {
   midi: number;
@@ -159,7 +161,7 @@ function snrAt(ctx: SpectrumContext, freq: number, tolCents: number): { snr: num
  */
 export function evaluateNotes(ctx: SpectrumContext, expected: number[], p: ChordCheckParams): NoteEvidence[] {
   const set = new Set(expected);
-  return expected.map((midi) => {
+  const notes = expected.map((midi): NoteEvidence => {
     const f0 = midiToFreq(midi);
     const others = expected.filter((m) => m !== midi).map((m) => midiToFreq(m));
 
@@ -235,6 +237,20 @@ export function evaluateNotes(ctx: SpectrumContext, expected: number[], p: Chord
 
     return { midi, harmonics, score, subDb, passed: verdict === 'ok', verdict };
   });
+
+  // Баланс аккорда: несыгранная нота даёт слабый «призрак» (остаток прошлого аккорда, резонанс
+  // цифрового пианино) на ~10 дБ над шумом — абсолютный порог он проходит, но на 17–22 дБ тише
+  // остальных нот. У настоящих аккордов разброс между нотами в живых отчётах ≤ ~10 дБ.
+  if (p.chordBalanceDb > 0 && notes.length > 1) {
+    const loudest = Math.max(...notes.filter((n) => n.passed).map((n) => n.score));
+    for (const n of notes) {
+      if (n.passed && n.score < loudest - p.chordBalanceDb) {
+        n.passed = false;
+        n.verdict = 'faint';
+      }
+    }
+  }
+  return notes;
 }
 
 /** Амплитуда наибольшего бина в пределах допуска вокруг freq (0 — вне спектра). */

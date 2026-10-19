@@ -10,6 +10,7 @@ const VERDICT_TEXT: Record<NoteVerdict, string> = {
   'octave-up': 'октава выше?',
   'octave-down': 'нота ниже?',
   'no-attack': 'нет нового удара',
+  faint: 'слабо (остаток?)',
 };
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {

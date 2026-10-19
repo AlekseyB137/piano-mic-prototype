@@ -553,7 +553,7 @@ export class Analyzer {
       sn !== null && !res.notes.some((n) => n.midi === sn || SUBHARMONIC_SEMIS.includes(n.midi - sn));
     const nothingNew =
       !res.allPassed &&
-      res.notes.every((n) => !n.passed && (!n.evidence || n.evidence.verdict === 'weak' || n.evidence.verdict === 'no-attack')) &&
+      res.notes.every((n) => !n.passed && (!n.evidence || n.evidence.verdict === 'weak' || n.evidence.verdict === 'no-attack' || n.evidence.verdict === 'faint')) &&
       !foreign;
     if (nothingNew) {
       this.drop(res.onsetTime, 'проверка: ни одна ожидаемая нота не ударена и посторонней ноты нет (отпускание клавиш?)', events, this.sessionAttack);

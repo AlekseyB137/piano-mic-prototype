@@ -213,6 +213,16 @@ for (const [label, chord, missing] of [
     checks.map((c) => (c.allPassed ? '✓' : '✗') + '@' + (c.onsetTime - 2.3).toFixed(2) + '[' + c.notes.map((n) => midiToName(n.midi) + ':' + (n.passed ? 'ok' : n.evidence?.verdict)).join(',') + ']').join(' '));
 }
 {
+  // Живой отчёт 2026-10-20 (3 серии 3+1): несыгранная E5 «звучала» на 9–11 дБ при 25–35 дБ у C5/G5
+  // и дважды засчитывалась. Моделируем «призрак» E5 на −24 дБ, растущий вместе с ударом.
+  const sig = render(1.6, [{ at: 0.3, midis: [72, 79] }]);
+  strike(sig, 0.3, 76, 0.2 * 0.063, 1.5, 77);
+  const ev = run(sig, (a) => a.setExpected([72, 76, 79]));
+  const checks = ev.filter((e): e is CheckEvent => e.type === 'check');
+  expect('Проверка C5-E5-G5 → C5+G5 и «призрак» E5 на −24 дБ: ждём ✗', checks.length === 1 && !checks[0].allPassed,
+    checks.map((c) => c.notes.map((n) => midiToName(n.midi) + ':' + (n.passed ? 'ok' : n.evidence?.verdict) + ' ' + n.evidence?.score.toFixed(0)).join(',')).join(' ') || 'вердикта нет');
+}
+{
   // Живой отчёт 2026-10-20: атака сработала на стуке клавиши (тихо) за ~50 мс до звука аккорда
   // без E5 — проверка громкости в момент атаки отбросила удар, вердикта не было
   const sig = render(5.2, [0.3, 1.3, 2.3].map((at) => ({ at, midis: [72, 76, 79] })));
