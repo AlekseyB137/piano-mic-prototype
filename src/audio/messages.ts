@@ -59,6 +59,8 @@ export interface OnsetEvent {
 export interface AttackInfo {
   flux: number;
   rmsDb: number;
+  /** Подъём энергии в полосе 2–6 кГц при атаке, дБ: у удара молоточка большой, у отпускания клавиш — нет. */
+  hfRiseDb: number;
 }
 
 /** Подтверждённая нота: удар + устойчивая высота в строе. */

@@ -28,6 +28,8 @@ export interface AnalyzerParams {
   octaveMarginDb: number;
   /** Проверка октавного аккорда (C3+C4): насколько чётный партиал нижней ноты выше соседних, дБ (0 — выкл.). */
   octaveChordDb: number;
+  /** Проверка: окно оценки открывает только атака с подъёмом 2–6 кГц не меньше этого, дБ (0 — выкл.). */
+  checkAttackHfDb: number;
   /** Проверка: длительность окна оценки после атаки, мс. */
   checkWindowMs: number;
   /** Проверка: сколько кадров подряд нота должна проходить проверку. */
@@ -49,6 +51,7 @@ export const DEFAULT_PARAMS: AnalyzerParams = {
   riseDb: 3,
   octaveMarginDb: 6,
   octaveChordDb: 4,
+  checkAttackHfDb: 6,
   checkWindowMs: 350,
   checkMinHits: 2,
 };

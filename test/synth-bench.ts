@@ -17,7 +17,7 @@ function rand(seed: number) {
 }
 
 /** Удар: партиалы h·f0·√(1+B h²), амплитуда ~1/h, верх затухает быстрее; короткий шумовой «стук» молоточка. */
-function strike(out: Float32Array, at: number, midi: number, gain = 0.2, dur = 1.2, seed = 1) {
+function strike(out: Float32Array, at: number, midi: number, gain = 0.2, dur = 1.2, seed = 1, h1Gain?: number) {
   const f0 = midiToFreq(midi) * Math.pow(2, (midi > 64 ? (midi - 64) * 0.8 : 0) / 1200);
   const r = rand(seed);
   const i0 = Math.floor(at * SR);
@@ -31,7 +31,7 @@ function strike(out: Float32Array, at: number, midi: number, gain = 0.2, dur = 1
       const f = h * f0 * Math.sqrt(1 + B * h * h);
       if (f > SR / 2.2) break;
       // у басов основной тон слабее 2-й гармоники — как у реальных струн и маленьких микрофонов
-      const a = (1 / h) * (midi < 48 && h === 1 ? 0.4 : 1);
+      const a = (1 / h) * (h === 1 ? h1Gain ?? (midi < 48 ? 0.4 : 1) : 1);
       s += a * Math.exp(-t * (1.5 + 0.6 * h)) * Math.sin(2 * Math.PI * f * t + phases[h - 1]);
     }
     const thump = t < 0.01 ? r() * 0.3 * (1 - t / 0.01) : 0;
@@ -39,11 +39,11 @@ function strike(out: Float32Array, at: number, midi: number, gain = 0.2, dur = 1
   }
 }
 
-function render(seconds: number, events: { at: number; midis: number[]; gain?: number }[], noise = 0.002) {
+function render(seconds: number, events: { at: number; midis: number[]; gain?: number; h1?: number }[], noise = 0.002) {
   const out = new Float32Array(Math.floor(seconds * SR));
   const r = rand(99);
   for (let i = 0; i < out.length; i++) out[i] = noise * r();
-  events.forEach((e, k) => e.midis.forEach((m, j) => strike(out, e.at + j * 0.01, m, e.gain ?? 0.2, 1.2, k * 31 + j)));
+  events.forEach((e, k) => e.midis.forEach((m, j) => strike(out, e.at + j * 0.01, m, e.gain ?? 0.2, 1.2, k * 31 + j, e.h1)));
   return out;
 }
 
@@ -88,7 +88,7 @@ expect(`Свободный режим: 48 одиночных нот C2–B5`, fr
 }
 
 // 3. Режим проверки
-type Case = { name: string; expect: number[]; play: number[]; want: boolean; gain?: number };
+type Case = { name: string; expect: number[]; play: number[]; want: boolean; gain?: number; h1?: number };
 const cases: Case[] = [
   { name: 'C4 → C4', expect: [60], play: [60], want: true },
   { name: 'C4 → C#4 (сосед)', expect: [60], play: [61], want: false },
@@ -102,6 +102,11 @@ const cases: Case[] = [
   { name: 'C3+C4 → только C3', expect: [48, 60], play: [48], want: false },
   { name: 'C4+C5 → C4+C5', expect: [60, 72], play: [60, 72], want: true },
   { name: 'C4+C5 → только C4', expect: [60, 72], play: [60], want: false },
+  // Микрофон iPhone почти не слышит основной тон ~130 Гц (живой отчёт 2026-10-20: «только C3» засчитывалось за C3+C4)
+  { name: 'C3+C4 → C3+C4, слабый основной тон (iPhone)', expect: [48, 60], play: [48, 60], want: true, h1: 0.2 },
+  { name: 'C3+C4 → только C3, слабый основной тон (iPhone)', expect: [48, 60], play: [48], want: false, h1: 0.2 },
+  { name: 'C3+C4 → C3+B3, слабый основной тон (iPhone, живой отчёт)', expect: [48, 60], play: [48, 59], want: false, h1: 0.2 },
+  { name: 'C3+C4 → C3+B3', expect: [48, 60], play: [48, 59], want: false },
   { name: 'C2+C4 → C2+C4', expect: [36, 60], play: [36, 60], want: true },
   { name: 'C2+C4 → только C2', expect: [36, 60], play: [36], want: false },
   { name: 'A2 → A2 (бас)', expect: [45], play: [45], want: true },
@@ -110,7 +115,7 @@ const cases: Case[] = [
   { name: 'C4 тихо (−20 дБ) → C4', expect: [60], play: [60], want: true, gain: 0.02 },
 ];
 for (const c of cases) {
-  const ev = run(render(1.2, [{ at: 0.2, midis: c.play, gain: c.gain }]), (a) => a.setExpected(c.expect));
+  const ev = run(render(1.2, [{ at: 0.2, midis: c.play, gain: c.gain, h1: c.h1 }]), (a) => a.setExpected(c.expect));
   const checks = ev.filter((e): e is CheckEvent => e.type === 'check');
   const got = checks.length ? checks[0].allPassed : null;
   const detail = checks.length

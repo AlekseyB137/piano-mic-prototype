@@ -51,6 +51,10 @@ const MID_HISTORY = 3;
 const NOTE_RISE_DB = 1.5;
 /** Интервалы от ноты до её гармоник ×2…×8, полутоны. */
 const SUBHARMONIC_SEMIS = [12, 19, 24, 28, 31, 34, 36];
+/** История энергии полосы 2–6 кГц по hop'ам (≈ 11 мс). */
+const HF_HISTORY = 16;
+const HF_LO_HZ = 2000;
+const HF_HI_HZ = 6000;
 /** Атака в пределах этого времени после ещё не подтверждённой — тот же удар, подтверждение продолжаем. */
 const MERGE_ONSET_SEC = 0.15;
 /** Спектральный путь: допуск частоты партиала, центы (строже общего — иначе ловим склоны соседних пиков). */
@@ -134,7 +138,9 @@ export class Analyzer {
   // Подтверждение текущей атаки
   private restrikePending = false;
   private onsetAt = -Infinity;
-  private attack: AttackInfo = { flux: 0, rmsDb: -120 };
+  private attack: AttackInfo = { flux: 0, rmsDb: -120, hfRiseDb: 0 };
+  private readonly hfDb = new Float32Array(HF_HISTORY).fill(-200);
+  private hfPos = 0;
   private attackConfirmed = false;
   private track: number[] = []; // дробные MIDI последних кадров после удара
   private trackRise: number[] = []; // рост партиалов в тех же кадрах, дБ
@@ -159,7 +165,7 @@ export class Analyzer {
   private sessionPiano = false;
   /** Нота, подтверждённая детектором нот для удара, открывшего окно проверки. */
   private sessionNote: number | null = null;
-  private sessionAttack: AttackInfo = { flux: 0, rmsDb: -120 };
+  private sessionAttack: AttackInfo = { flux: 0, rmsDb: -120, hfRiseDb: 0 };
   private sessionRef: Float32Array | null = null;
   private ignoredAttacks = 0;
   /** Вердикт проверки, ждущий подтверждения «это был удар по струне». */
@@ -281,6 +287,13 @@ export class Analyzer {
     this.smallFft.magnitudes(this.smallBuf, this.smallWin, this.smallMags);
     this.smallHist[this.smallHistPos].set(this.smallMags);
     this.smallHistPos = (this.smallHistPos + 1) % SMALL_HISTORY;
+    {
+      const binHz = this.sampleRate / SMALL_FFT;
+      let e = 0;
+      for (let k = Math.round(HF_LO_HZ / binHz); k <= Math.min(SMALL_FFT / 2, Math.round(HF_HI_HZ / binHz)); k++) e += this.smallMags[k] * this.smallMags[k];
+      this.hfDb[this.hfPos] = 10 * Math.log10(e + 1e-20);
+      this.hfPos = (this.hfPos + 1) % HF_HISTORY;
+    }
     // Атаку разрешаем чуть раньше гейта высоты — чтобы ловить тихие удары
     const onsetAllowed = rmsDb > this.noiseRmsDb + p.gateDb * 0.5;
     const o = this.onset.process(this.smallMags, t, onsetAllowed, {
@@ -402,27 +415,55 @@ export class Analyzer {
     });
   }
 
+  /**
+   * Подъём энергии 2–6 кГц: максимум за последние 2 hop'а против медианы за ~40–100 мс до атаки.
+   * Удар молоточка — короткий широкополосный «щелчок» и свежие верхние партиалы; отпускание клавиш,
+   * демпферы и движение рук дают глухой низкий звук, а звучащий аккорд к этому времени уже без верха.
+   */
+  private hfRiseDb(): number {
+    const at = (back: number) => this.hfDb[(this.hfPos - 1 - back + 2 * HF_HISTORY) % HF_HISTORY];
+    const now = Math.max(at(0), at(1));
+    const before: number[] = [];
+    for (let b = 4; b <= 9; b++) before.push(at(b));
+    before.sort((x, y) => x - y);
+    return Math.max(0, now - before[before.length >> 1]);
+  }
+
   private onOnset(t: number, flux: number, threshold: number, rmsDb: number, events: AnalyzerEvent[]): void {
     // Дребезг: вторая атака сразу после уже подтверждённой ноты — тот же удар
     if (this.attackConfirmed && t - this.onsetAt < SAME_STRIKE_SEC) return;
     events.push({ type: 'onset', t, flux, threshold, rmsDb });
+    const hfRiseDb = this.hfRiseDb();
 
+    // Окно проверки открывает только «настоящий» удар (подъём ВЧ); слабые атаки над звучащим
+    // аккордом (отпускание клавиш, демпферы) окно не трогают — ни новых вердиктов, ни закрытия текущего
+    const p = this.params;
+    const strikeLike = p.checkAttackHfDb <= 0 || hfRiseDb >= p.checkAttackHfDb;
+    if (this.expected.length > 0 && !strikeLike) {
+      events.push({
+        type: 'dropped',
+        t,
+        reason: `проверка: атака без подъёма ВЧ (+${hfRiseDb.toFixed(1)} дБ < ${p.checkAttackHfDb}) — не удар`,
+        attack: { flux, rmsDb, hfRiseDb },
+        seen: '',
+      });
+    }
     // Если новая атака закрыла предыдущее окно проверки — решаем его судьбу со СТАРЫМИ флагами
-    const prev = this.session.onOnset(t, this.expected, this.hasPrevBig ? this.prevBigMags : null, this.params.checkMinHits);
+    const prev = strikeLike ? this.session.onOnset(t, this.expected, this.hasPrevBig ? this.prevBigMags : null, p.checkMinHits) : null;
     if (prev) this.emitCheck(prev, events);
     if (this.session.isActive && this.session.startTime === t) {
       this.dropPendingCheck(events); // недоподтверждённый прошлый вердикт — уже не актуален
       this.sessionRef = this.session.reference;
       this.sessionPiano = false;
       this.sessionNote = null;
-      this.sessionAttack = { flux, rmsDb };
+      this.sessionAttack = { flux, rmsDb, hfRiseDb };
     }
 
     if (this.restrikePending && !this.attackConfirmed && t - this.onsetAt < MERGE_ONSET_SEC) {
       // Повторная атака того же удара (дребезг детектора, стук клавиши): подтверждение
       // не начинаем заново — продолжаем с прежним спектром «до удара», только продлеваем окно
       this.onsetAt = t;
-      if (flux > this.attack.flux) this.attack = { flux, rmsDb };
+      if (flux > this.attack.flux) this.attack = { flux, rmsDb, hfRiseDb: Math.max(hfRiseDb, this.attack.hfRiseDb) };
       this.seen.push('|');
       return;
     }
@@ -433,7 +474,7 @@ export class Analyzer {
     this.restrikePending = true;
     this.attackConfirmed = false;
     this.onsetAt = t;
-    this.attack = { flux, rmsDb };
+    this.attack = { flux, rmsDb, hfRiseDb };
     // Спектр до удара: детектор отмечает атаку на кадр позже, поэтому берём самый старый из истории (~30 мс назад)
     this.preOnsetSmall.set(this.smallHist[this.smallHistPos]);
     this.preOnsetMid.set(this.midHist[this.midHistPos]);

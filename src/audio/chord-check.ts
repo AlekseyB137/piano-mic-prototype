@@ -244,22 +244,31 @@ function peakAmp(ctx: SpectrumContext, freq: number, tolCents: number): number {
 }
 
 /**
- * Октавный аккорд (C3+C4, C2+C4): основной тон верхней ноты совпадает с k-м партиалом
- * нижней (k = 2 или 4). Если верхнюю ноту не сыграли, k-й партиал нижней примерно
- * на уровне соседних (k−1, k+1). Если сыграли — он заметно выше их геометрического среднего.
- * Нет нижней октавы в аккорде или нет соседей для сравнения — проверку не применяем.
+ * Октавный аккорд (C3+C4, C2+C4): все партиалы верхней ноты совпадают с партиалами нижней
+ * (у октавы — с чётными, у двух октав — с кратными 4). Если верхнюю ноту сыграли, эти партиалы
+ * нижней заметно громче соседних «чужих» (нечётных). Сравниваем по нескольким партиалам
+ * и берём медиану. Основной тон (×1) и ×2 НЕ используем: микрофон телефона почти не слышит
+ * ~100–150 Гц (×2 тогда кажется усиленным), а ×2 и без верхней ноты на ~3.5 дБ громче ×3.
+ * Нет нижней октавы в аккорде или нет данных для сравнения — проверку не применяем.
  */
 function octaveBoostOk(ctx: SpectrumContext, midi: number, set: Set<number>, p: ChordCheckParams): boolean {
   if (p.octaveChordDb <= 0) return true;
-  for (const [semis, k] of [[12, 2], [24, 4]] as const) {
+  for (const [semis, centers] of [[12, [4, 6, 8]], [24, [4, 8]]] as const) {
     const low = midi - semis;
     if (!set.has(low)) continue;
     const fL = midiToFreq(low);
-    const center = peakAmp(ctx, partialFreq(fL, k), p.toleranceCents);
-    const sides = [k - 1, k + 1].map((h) => peakAmp(ctx, partialFreq(fL, h), p.toleranceCents)).filter((a) => a > 0);
-    if (sides.length === 0 || center <= 0) continue;
-    const ref = Math.max(Math.pow(sides.reduce((a, b) => a * b, 1), 1 / sides.length), ctx.noiseFloor);
-    return 20 * Math.log10(center / ref) >= p.octaveChordDb;
+    const ratios: number[] = [];
+    for (const h of centers) {
+      const center = peakAmp(ctx, partialFreq(fL, h), p.toleranceCents);
+      const sides = [h - 1, h + 1].map((s) => peakAmp(ctx, partialFreq(fL, s), p.toleranceCents)).filter((a) => a > 0);
+      if (center <= 0 || sides.length < 2) continue;
+      const ref = Math.max(Math.sqrt(sides[0] * sides[1]), ctx.noiseFloor);
+      ratios.push(20 * Math.log10(center / ref));
+    }
+    if (ratios.length === 0) continue;
+    ratios.sort((a, b) => a - b);
+    const median = ratios.length % 2 ? ratios[ratios.length >> 1] : 0.5 * (ratios[ratios.length / 2 - 1] + ratios[ratios.length / 2]);
+    return median >= p.octaveChordDb;
   }
   return true;
 }

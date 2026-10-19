@@ -14,7 +14,7 @@ const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)
 // --- Сохранение настроек между запусками (только удобство; без storage тоже работает) ---
 const LS_PARAMS = 'pianoMic.params';
 /** Увеличивать при смене значений по умолчанию — старые сохранённые пороги сбросятся. */
-const PARAMS_VERSION = 3;
+const PARAMS_VERSION = 4;
 const LS_FFT = 'pianoMic.fft';
 function load<T>(key: string, fallback: T): T {
   try {
@@ -264,8 +264,8 @@ btnDebug.addEventListener('click', () => {
 });
 
 // --- События анализатора ---
-function attackText(a: { flux: number; rmsDb: number }): string {
-  return `атака ${a.flux.toFixed(3)}, ${a.rmsDb.toFixed(0)} дБFS`;
+function attackText(a: { flux: number; rmsDb: number; hfRiseDb: number }): string {
+  return `атака ${a.flux.toFixed(3)}, ${a.rmsDb.toFixed(0)} дБFS, ВЧ +${a.hfRiseDb.toFixed(0)} дБ`;
 }
 
 function onEvent(ev: AnalyzerEvent): void {

@@ -25,6 +25,7 @@ const SLIDERS: SliderDef[] = [
   { key: 'riseDb', label: 'Проверка: рост после удара, дБ (0 — выкл.)', min: 0, max: 12, step: 0.5 },
   { key: 'octaveMarginDb', label: 'Проверка: запас «октава ниже», дБ', min: 0, max: 20, step: 1 },
   { key: 'octaveChordDb', label: 'Проверка: октавный аккорд (C3+C4), дБ', min: 0, max: 15, step: 1 },
+  { key: 'checkAttackHfDb', label: 'Проверка: подъём 2–6 кГц у удара, дБ', min: 0, max: 30, step: 1 },
   { key: 'checkWindowMs', label: 'Проверка: окно после удара, мс', min: 100, max: 1000, step: 10 },
   { key: 'checkMinHits', label: 'Проверка: кадров подряд', min: 1, max: 6, step: 1 },
 ];
