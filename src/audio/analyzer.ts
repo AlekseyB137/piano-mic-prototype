@@ -53,8 +53,14 @@ const NOTE_RISE_DB = 1.5;
 const SUBHARMONIC_SEMIS = [12, 19, 24, 28, 31, 34, 36];
 /** После выбора нот на экране столько секунд атаки не открывают проверку: стук пальца по телефону. */
 const SCREEN_TAP_MUTE_SEC = 0.6;
-/** Атака тише медианы недавних засчитанных ударов больше чем на столько дБ окно проверки не открывает. */
+/**
+ * Пик громкости за окно проверки тише медианы недавних засчитанных ударов больше чем на столько дБ —
+ * это не удар (касание, стук). Меряем пик за окно, а не в момент атаки: атака часто срабатывает на
+ * стуке клавиши раньше звука.
+ */
 const STRIKE_LEVEL_MARGIN_DB = 20;
+/** Пока засчитанных ударов не было — пик окна должен быть громче фона хотя бы на столько дБ. */
+const STRIKE_OVER_NOISE_DB = 15;
 const STRIKE_HISTORY = 6;
 /** Окно, закрытое новым ударом раньше этого и без единой засчитанной ноты, — предвестник удара (щелчок пальца). */
 const PRECURSOR_SEC = 0.3;
@@ -178,6 +184,8 @@ export class Analyzer {
   private checkMuteUntil = 0;
   /** Уровни атак недавних ударов, давших засчитанные ноты, дБFS. */
   private strikeLevels: number[] = [];
+  /** Пик RMS за текущее окно проверки (до выдачи вердикта), дБFS. */
+  private sessionPeakDb = -120;
   /** Вердикт проверки, ждущий подтверждения «это был удар по струне». */
   private pendingCheck: { res: Omit<CheckEvent, 'type' | 'attack'>; deadline: number } | null = null;
 
@@ -299,6 +307,7 @@ export class Analyzer {
     const rmsDb = 20 * Math.log10(rms + 1e-12);
     this.lastRmsDb = rmsDb;
     const gateOpen = rmsDb > this.noiseRmsDb + p.gateDb;
+    if (this.session.isActive || this.pendingCheck) this.sessionPeakDb = Math.max(this.sessionPeakDb, rmsDb);
 
     this.smallFft.magnitudes(this.smallBuf, this.smallWin, this.smallMags);
     this.smallHist[this.smallHistPos].set(this.smallMags);
@@ -456,20 +465,14 @@ export class Analyzer {
     const p = this.params;
     const tapMuted = t < this.checkMuteUntil;
     const hfOk = p.checkAttackHfDb <= 0 || hfRiseDb >= p.checkAttackHfDb;
-    // Громкость относительно недавних настоящих ударов (пока их нет — не проверяем)
-    const lv = [...this.strikeLevels].sort((a, b) => a - b);
-    const levelRef = lv.length ? lv[lv.length >> 1] - STRIKE_LEVEL_MARGIN_DB : -Infinity;
-    const levelOk = rmsDb >= levelRef;
-    const strikeLike = !tapMuted && hfOk && levelOk;
+    const strikeLike = !tapMuted && hfOk;
     if (this.expected.length > 0 && !strikeLike) {
       events.push({
         type: 'dropped',
         t,
         reason: tapMuted
           ? 'проверка: сразу после касания экрана (стук по телефону?)'
-          : !hfOk
-            ? `проверка: атака без подъёма ВЧ (+${hfRiseDb.toFixed(1)} дБ < ${p.checkAttackHfDb}) — не удар`
-            : `проверка: атака тише недавних ударов (${rmsDb.toFixed(0)} < ${levelRef.toFixed(0)} дБFS) — не удар`,
+          : `проверка: атака без подъёма ВЧ (+${hfRiseDb.toFixed(1)} дБ < ${p.checkAttackHfDb}) — не удар`,
         attack: { flux, rmsDb, hfRiseDb },
         seen: '',
       });
@@ -486,6 +489,8 @@ export class Analyzer {
       this.sessionPiano = false;
       this.sessionNote = null;
       this.sessionAttack = { flux, rmsDb, hfRiseDb };
+      this.sessionPeakDb = rmsDb;
+      events.push({ type: 'checkStart', t });
     }
 
     if (this.restrikePending && !this.attackConfirmed && t - this.onsetAt < MERGE_ONSET_SEC) {
@@ -554,8 +559,18 @@ export class Analyzer {
       this.drop(res.onsetTime, 'проверка: ни одна ожидаемая нота не ударена и посторонней ноты нет (отпускание клавиш?)', events, this.sessionAttack);
       return;
     }
+    const lv = [...this.strikeLevels].sort((a, b) => a - b);
+    const levelRef = lv.length
+      ? lv[lv.length >> 1] - STRIKE_LEVEL_MARGIN_DB
+      : this.noiseSpectrum
+        ? this.noiseRmsDb + STRIKE_OVER_NOISE_DB
+        : -Infinity;
+    if (this.sessionPeakDb < levelRef) {
+      this.drop(res.onsetTime, `проверка: пик громкости ${this.sessionPeakDb.toFixed(0)} дБFS < ${levelRef.toFixed(0)} — не удар (касание, стук?)`, events, this.sessionAttack);
+      return;
+    }
     if (res.notes.some((n) => n.passed)) {
-      this.strikeLevels.push(this.sessionAttack.rmsDb);
+      this.strikeLevels.push(this.sessionPeakDb);
       if (this.strikeLevels.length > STRIKE_HISTORY) this.strikeLevels.shift();
     }
     events.push({ type: 'check', ...res, attack: this.sessionAttack });

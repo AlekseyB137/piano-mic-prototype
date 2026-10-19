@@ -321,6 +321,12 @@ function onEvent(ev: AnalyzerEvent): void {
       if (!debug.root.classList.contains('collapsed')) refreshInfo();
       break;
     }
+    case 'checkStart':
+      // Новый удар: прошлый результат больше не актуален, чтобы старая подсветка не путала
+      keyboard.clear('pass');
+      keyboard.clear('fail');
+      readout.onCheckStart();
+      break;
     case 'dropped':
       dropped.unshift(
         `[${ev.t.toFixed(3)}s] ${ev.reason} · ${attackText(ev.attack)}${ev.seen ? ` · видел: ${ev.seen}` : ''}`,

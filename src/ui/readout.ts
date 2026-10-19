@@ -111,6 +111,16 @@ export class Readout {
     this.status.className = 'check-status';
   }
 
+  /** Начат анализ нового удара: сбрасываем прошлый вердикт до нейтрального состояния. */
+  onCheckStart(): void {
+    for (const c of this.chipEls.values()) {
+      c.root.classList.remove('pass', 'fail');
+      c.state.textContent = '…';
+    }
+    this.status.textContent = 'Анализ…';
+    this.status.className = 'check-status';
+  }
+
   private updateLive(f: FrameEvent): void {
     if (!f.live) return;
     for (const ev of f.live) {

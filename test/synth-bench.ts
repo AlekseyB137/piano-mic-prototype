@@ -213,6 +213,16 @@ for (const [label, chord, missing] of [
     checks.map((c) => (c.allPassed ? '✓' : '✗') + '@' + (c.onsetTime - 2.3).toFixed(2) + '[' + c.notes.map((n) => midiToName(n.midi) + ':' + (n.passed ? 'ok' : n.evidence?.verdict)).join(',') + ']').join(' '));
 }
 {
+  // Живой отчёт 2026-10-20: атака сработала на стуке клавиши (тихо) за ~50 мс до звука аккорда
+  // без E5 — проверка громкости в момент атаки отбросила удар, вердикта не было
+  const sig = render(5.2, [0.3, 1.3, 2.3].map((at) => ({ at, midis: [72, 76, 79] })));
+  keyClick(sig, 3.25, 0.01, 31);
+  [72, 79].forEach((m, j) => strike(sig, 3.3 + j * 0.01, m, 0.2, 1.5, 400 + j));
+  const ev = run(sig, (a) => a.setExpected([72, 76, 79]));
+  const verdicts = ev.filter((e): e is CheckEvent => e.type === 'check').map((c) => (c.allPassed ? '✓' : '✗')).join('');
+  expect('Проверка C5-E5-G5 ×3, затем стук клавиши + аккорд без E5 — ✓✓✓✗', verdicts === '✓✓✓✗', verdicts || 'вердиктов нет');
+}
+{
   // Живой отчёт: тихие щелчки (касания экрана, −58…−68 дБFS) с подъёмом ВЧ давали ложные ✗
   const sig = render(5, [0.3, 1.3, 2.3].map((at) => ({ at, midis: [72, 76, 79] })));
   [3.3, 3.7, 4.1].forEach((t, k) => keyClick(sig, t, 0.004, 20 + k));

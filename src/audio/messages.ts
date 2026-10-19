@@ -97,4 +97,10 @@ export interface CalibratedEvent {
   noisePreview: Float32Array;
 }
 
-export type AnalyzerEvent = InfoEvent | FrameEvent | OnsetEvent | NoteEvent | CheckEvent | CalibratedEvent | DroppedEvent;
+/** Открыто окно проверки (похоже на удар): UI сбрасывает прошлый результат и ждёт вердикта. */
+export interface CheckStartEvent {
+  type: 'checkStart';
+  t: number;
+}
+
+export type AnalyzerEvent = InfoEvent | FrameEvent | OnsetEvent | NoteEvent | CheckEvent | CalibratedEvent | DroppedEvent | CheckStartEvent;
