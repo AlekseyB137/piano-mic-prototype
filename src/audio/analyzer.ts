@@ -4,7 +4,7 @@ import { SpectralFluxOnset } from './onset';
 import { NoiseCalibrator } from './noise';
 import { countTunedPeaks, evaluateNotes, partialSnrDb, type NoteEvidence, type SpectrumContext } from './chord-check';
 import { CheckSession } from './check-session';
-import { expectedStretchCents, freqToMidiFloat, midiToName } from './notes';
+import { expectedStretchCents, freqToMidiFloat, midiToFreq, midiToName } from './notes';
 import { DEFAULT_PARAMS, type AnalyzerParams } from './params';
 import type { AnalyzerEvent, AttackInfo, CheckEvent, PitchInfo } from './messages';
 
@@ -39,9 +39,8 @@ const CONFIRM_FRAMES = 3;
 const SAME_STRIKE_SEC = 0.08;
 /** Нечётные партиалы (3f, 5f) должны быть выше фона, чтобы поверить в низкую октаву. */
 const ODD_PARTIAL_DB = 8;
-/** Огибающая: после удара громкость не должна вырасти больше чем на столько дБ (у слога — растёт). */
-const ENVELOPE_RISE_DB = 3;
-const ENV_HISTORY = 64;
+/** Сколько последних малых спектров храним, чтобы взять спектр ДО атаки (детектор срабатывает с задержкой). */
+const SMALL_HISTORY = 4;
 /** Минимальный порог атаки после калибровки: в очень тихой комнате иначе срабатывают согласные речи. */
 const MIN_ONSET_DELTA = 0.01;
 /** Фон по умолчанию до калибровки. */
@@ -109,6 +108,11 @@ export class Analyzer {
   private track: number[] = []; // дробные MIDI последних кадров после удара
   private seen: string[] = []; // диагностика: что видел детектор после удара
   private lastReject = '';
+  // Малые спектры последних hop'ов и спектр до текущей атаки — проверка «нота действительно ударена»
+  private readonly smallHist: Float32Array[] = [];
+  private smallHistPos = 0;
+  private readonly preOnsetSmall: Float32Array;
+  private hasPreOnset = false;
   // «Фортепианность» удара, открывшего окно проверки
   private sessionPiano = false;
   private sessionAttack: AttackInfo = { flux: 0, rmsDb: -120 };
@@ -116,10 +120,6 @@ export class Analyzer {
   private ignoredAttacks = 0;
   /** Вердикт проверки, ждущий подтверждения «это был удар по струне». */
   private pendingCheck: { res: Omit<CheckEvent, 'type' | 'attack'>; deadline: number } | null = null;
-  // Короткая огибающая: RMS каждого hop (512 сэмплов ≈ 11 мс)
-  private readonly envDb = new Float32Array(ENV_HISTORY);
-  private readonly envT = new Float64Array(ENV_HISTORY);
-  private envPos = 0;
 
   private lastFlux = 0;
   private lastThreshold = 0;
@@ -143,6 +143,8 @@ export class Analyzer {
     this.smallMags = new Float32Array(SMALL_FFT / 2 + 1);
     this.bigMags = new Float32Array(this.bigN / 2 + 1);
     this.prevBigMags = new Float32Array(this.bigN / 2 + 1);
+    for (let i = 0; i < SMALL_HISTORY; i++) this.smallHist.push(new Float32Array(SMALL_FFT / 2 + 1));
+    this.preOnsetSmall = new Float32Array(SMALL_FFT / 2 + 1);
     this.yin = new YinDetector(sampleRate, SMALL_FFT, 60, 2200);
     this.yinLong = new YinDetector(sampleRate, LONG_YIN, 40, 400);
 
@@ -229,14 +231,11 @@ export class Analyzer {
     const rms = Math.sqrt(sum / SMALL_FFT);
     const rmsDb = 20 * Math.log10(rms + 1e-12);
     this.lastRmsDb = rmsDb;
-    let hopSum = 0;
-    for (let i = SMALL_FFT - HOP; i < SMALL_FFT; i++) hopSum += this.smallBuf[i] * this.smallBuf[i];
-    this.envDb[this.envPos] = 10 * Math.log10(hopSum / HOP + 1e-24);
-    this.envT[this.envPos] = t;
-    this.envPos = (this.envPos + 1) % ENV_HISTORY;
     const gateOpen = rmsDb > this.noiseRmsDb + p.gateDb;
 
     this.smallFft.magnitudes(this.smallBuf, this.smallWin, this.smallMags);
+    this.smallHist[this.smallHistPos].set(this.smallMags);
+    this.smallHistPos = (this.smallHistPos + 1) % SMALL_HISTORY;
     // Атаку разрешаем чуть раньше гейта высоты — чтобы ловить тихие удары
     const onsetAllowed = rmsDb > this.noiseRmsDb + p.gateDb * 0.5;
     const o = this.onset.process(this.smallMags, t, onsetAllowed, {
@@ -295,7 +294,7 @@ export class Analyzer {
       const sessionStart = this.session.isActive ? this.session.startTime : this.pendingCheck?.res.onsetTime;
       if (sessionStart !== undefined && !this.sessionPiano && this.sessionRef && t - sessionStart >= 0.05) {
         const tp = countTunedPeaks(this.spectrumContext(this.sessionRef), { fMin: 60, fMax: 2000, promDb: 12, riseDb: 6, tolCents: p.maxDetuneCents + 10, maxPeaks: 10 });
-        if (tp.peaks >= 3 && tp.tuned / tp.peaks >= 0.75 && this.looksStruck(sessionStart, t)) this.sessionPiano = true;
+        if (tp.peaks >= 3 && tp.tuned / tp.peaks >= 0.75) this.sessionPiano = true;
       }
       const res = this.session.update(t, live, p.checkWindowMs / 1000, p.checkMinHits);
       if (res) this.emitCheck(res, events);
@@ -377,6 +376,9 @@ export class Analyzer {
     this.attackConfirmed = false;
     this.onsetAt = t;
     this.attack = { flux, rmsDb };
+    // Спектр до удара: детектор отмечает атаку на кадр позже, поэтому берём самый старый из истории (~30 мс назад)
+    this.preOnsetSmall.set(this.smallHist[this.smallHistPos]);
+    this.hasPreOnset = this.hopIndex > SMALL_HISTORY;
     this.track = [];
     this.seen = [];
     this.lastReject = '';
@@ -418,25 +420,26 @@ export class Analyzer {
     else this.ignoredAttacks++;
   }
 
-  /**
-   * Форма огибающей удара молоточка: максимум громкости — в первые ~25 мс, дальше только спад.
-   * У слога речи после щелчка согласной идёт гласная, которая ГРОМЧЕ щелчка.
-   */
-  private looksStruck(onsetT: number, now: number): boolean {
-    return this.envelopeRiseDb(onsetT, now) <= ENVELOPE_RISE_DB;
-  }
-
-  /** Насколько громкость после удара превысила громкость самого удара, дБ (+∞ — нет данных). */
-  private envelopeRiseDb(onsetT: number, now: number): number {
-    let early = -Infinity, late = -Infinity;
-    for (let i = 0; i < ENV_HISTORY; i++) {
-      const tt = this.envT[i];
-      if (tt < onsetT - 0.015 || tt > now) continue;
-      if (tt <= onsetT + 0.025) early = Math.max(early, this.envDb[i]);
-      else late = Math.max(late, this.envDb[i]);
+  /** Максимальный рост партиалов ноты (×1…×4) в малом спектре относительно спектра до атаки, дБ. */
+  private noteRiseDb(midi: number): number {
+    if (!this.hasPreOnset) return Infinity;
+    const f0 = midiToFreq(midi);
+    const binHz = this.sampleRate / SMALL_FFT;
+    const maxBin = this.smallMags.length - 1;
+    let best = -Infinity;
+    for (let h = 1; h <= 4; h++) {
+      const f = h * f0;
+      const k0 = Math.round(f / binHz);
+      if (k0 + 1 >= maxBin) break;
+      let now = 0, before = 0;
+      for (let k = Math.max(1, k0 - 1); k <= k0 + 1; k++) {
+        now = Math.max(now, this.smallMags[k]);
+        before = Math.max(before, this.preOnsetSmall[k]);
+      }
+      if (now < 1e-6) continue; // партиала нет — по нему не судим
+      best = Math.max(best, 20 * Math.log10(now / Math.max(before, 1e-7)));
     }
-    if (early === -Infinity) return Infinity;
-    return late === -Infinity ? 0 : late - early;
+    return best;
   }
 
   /**
@@ -444,7 +447,8 @@ export class Analyzer {
    * Струна не меняет высоту без нового удара, а после удара её высота неподвижна
    * и стоит в строе. Поэтому нота = атака + CONFIRM_FRAMES кадров подряд с той же нотой,
    * дрейфом ≤ maxDriftCents и отклонением от строя ≤ maxDetuneCents.
-   * Голос (дрейф, вибрато, «мимо строя»), стук и шум сюда не проходят и никуда не выводятся.
+   * Форму огибающей НЕ проверяем: в быстрой игре атака часто срабатывает на щелчке
+   * пальца о клавишу за 50–100 мс до звука, и звук потом громче щелчка.
    */
   private confirmNote(pitch: PitchInfo | null, windowSec: number, t: number, events: AnalyzerEvent[]): void {
     const p = this.params;
@@ -498,11 +502,11 @@ export class Analyzer {
       this.lastReject = `мимо строя: ${Math.round(detune)} ц (ожидалось ${Math.round(expectedStretchCents(midis[0]))}±${p.maxDetuneCents})`;
       return;
     }
-    const rise = this.envelopeRiseDb(this.onsetAt, t);
-    if (rise > ENVELOPE_RISE_DB) {
-      // Высота устойчива, но громкость после «атаки» выросла — это слог, а не удар
-      this.restrikePending = false;
-      this.drop(this.onsetAt, `громкость выросла после атаки: +${Number.isFinite(rise) ? rise.toFixed(1) : '?'} дБ`, events);
+    // Нота должна быть ударена ПОСЛЕ атаки: её партиалы выросли относительно спектра до атаки.
+    // Иначе это ещё звучащая предыдущая нота, а атака была щелчком пальца или стуком.
+    const rise = this.noteRiseDb(midis[0]);
+    if (rise < p.riseDb) {
+      this.lastReject = `нет роста энергии ${midiToName(midis[0])}: ${rise.toFixed(1)} дБ (затухающая нота?)`;
       return;
     }
 

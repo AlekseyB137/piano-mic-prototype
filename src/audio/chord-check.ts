@@ -7,6 +7,8 @@ export interface ChordCheckParams {
   minHarmonics: number;
   octaveMarginDb: number;
   riseDb: number;
+  /** Октавный аккорд: чётный партиал нижней ноты должен быть выше соседних на столько дБ (0 — выкл.). */
+  octaveChordDb: number;
 }
 
 export interface SpectrumContext {
@@ -172,8 +174,10 @@ export function evaluateNotes(ctx: SpectrumContext, expected: number[], p: Chord
     // Наличие ноты
     let present: boolean;
     if (own.length === 0) {
-      // Все гармоники общие (например, C4 и C5 вместе) — довольствуемся основным тоном
-      present = h1.snrDb >= p.snrDb;
+      // Все гармоники общие (например, C3 и C4 вместе): основной тон C4 — это 2-я гармоника C3,
+      // и сама по себе C3 его тоже даёт. Поэтому, если в аккорде есть нота на октаву (две) ниже,
+      // требуем, чтобы её чётный партиал был заметно громче соседних нечётных.
+      present = h1.snrDb >= p.snrDb && octaveBoostOk(ctx, midi, set, p);
     } else {
       present = strongOwn.length >= Math.min(p.minHarmonics, own.length);
     }
@@ -226,6 +230,36 @@ export function evaluateNotes(ctx: SpectrumContext, expected: number[], p: Chord
 
     return { midi, harmonics, score, subDb, passed: verdict === 'ok', verdict };
   });
+}
+
+/** Амплитуда наибольшего бина в пределах допуска вокруг freq (0 — вне спектра). */
+function peakAmp(ctx: SpectrumContext, freq: number, tolCents: number): number {
+  const binHz = ctx.sampleRate / ctx.fftSize;
+  const maxBin = ctx.mags.length - 2;
+  if (freq / binHz >= maxBin - 1) return 0;
+  const [lo, hi] = binRange(freq, binHz, maxBin, tolCents);
+  return peakAround(ctx.mags, lo, hi)[0];
+}
+
+/**
+ * Октавный аккорд (C3+C4, C2+C4): основной тон верхней ноты совпадает с k-м партиалом
+ * нижней (k = 2 или 4). Если верхнюю ноту не сыграли, k-й партиал нижней примерно
+ * на уровне соседних (k−1, k+1). Если сыграли — он заметно выше их геометрического среднего.
+ * Нет нижней октавы в аккорде или нет соседей для сравнения — проверку не применяем.
+ */
+function octaveBoostOk(ctx: SpectrumContext, midi: number, set: Set<number>, p: ChordCheckParams): boolean {
+  if (p.octaveChordDb <= 0) return true;
+  for (const [semis, k] of [[12, 2], [24, 4]] as const) {
+    const low = midi - semis;
+    if (!set.has(low)) continue;
+    const fL = midiToFreq(low);
+    const center = peakAmp(ctx, partialFreq(fL, k), p.toleranceCents);
+    const sides = [k - 1, k + 1].map((h) => peakAmp(ctx, partialFreq(fL, h), p.toleranceCents)).filter((a) => a > 0);
+    if (sides.length === 0 || center <= 0) continue;
+    const ref = Math.max(Math.pow(sides.reduce((a, b) => a * b, 1), 1 / sides.length), ctx.noiseFloor);
+    return 20 * Math.log10(center / ref) >= p.octaveChordDb;
+  }
+  return true;
 }
 
 /** SNR (дБ) настоящего пика у частоты freq — для проверок вне аккорда. */

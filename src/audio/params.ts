@@ -26,6 +26,8 @@ export interface AnalyzerParams {
   riseDb: number;
   /** Проверка: запас для защиты от ноты на октаву ниже, дБ. */
   octaveMarginDb: number;
+  /** Проверка октавного аккорда (C3+C4): насколько чётный партиал нижней ноты выше соседних, дБ (0 — выкл.). */
+  octaveChordDb: number;
   /** Проверка: длительность окна оценки после атаки, мс. */
   checkWindowMs: number;
   /** Проверка: сколько кадров подряд нота должна проходить проверку. */
@@ -46,6 +48,7 @@ export const DEFAULT_PARAMS: AnalyzerParams = {
   minHarmonics: 2,
   riseDb: 3,
   octaveMarginDb: 6,
+  octaveChordDb: 4,
   checkWindowMs: 350,
   checkMinHits: 2,
 };
