@@ -13,6 +13,8 @@
   --key-white: #f4f4f2;
   --key-white-text: #555;
   --key-black: #1b1d22;
+  --hand-r: #4ea8ff;
+  --hand-l: #ffa94d;
   color-scheme: dark;
 
   /* Безопасные зоны: вырез экрана + кнопки Telegram в полноэкранном режиме */
@@ -46,6 +48,12 @@ html, body {
   height: 100dvh;
   padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
 }
+/* Строки закреплены явно: скрытые блоки (подсказка поворота, сообщение) не должны сдвигать остальные */
+#app > .toolbar { grid-row: 1; }
+#app > .message { grid-row: 2; }
+#app > .rotate-hint { grid-row: 3; }
+#app > .stage { grid-row: 4; }
+#app > #keyboard { grid-row: 5; }
 
 button {
   font: inherit;
@@ -223,3 +231,29 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
 @media (max-width: 560px) {
   .stage { grid-template-columns: 1fr; grid-template-rows: auto minmax(90px, 1fr); }
 }
+
+/* Режим «Песня»: падающие ноты вместо панели результата и лога */
+.song { display: none; position: relative; min-height: 0; grid-column: 1 / -1; }
+#app.song-mode .song { display: block; height: 100%; overflow: hidden; }
+#app.song-mode .readout, #app.song-mode .log { display: none; }
+#app.song-mode .stage { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr); padding-bottom: 0; }
+/* Холст абсолютно внутри области — иначе его собственная высота распирает сетку и обрезает клавиатуру */
+.song canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.song-hud {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  padding: 4px 4px 10px;
+  background: linear-gradient(var(--bg) 60%, transparent);
+  pointer-events: none;
+}
+.song-hud > * { pointer-events: auto; }
+.song-hud select { font: inherit; font-size: 13px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 4px 6px; max-width: 46vw; }
+.song-status { font-size: 13px; color: var(--text-dim); text-shadow: 0 1px 2px #000; }
+.song-status b { color: var(--text); }
+.song-done {
+  position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px;
+  align-items: center; justify-content: center; text-align: center;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  font-size: 16px;
+}
+.song-done strong { font-size: 24px; }

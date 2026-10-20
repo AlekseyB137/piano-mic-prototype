@@ -2,7 +2,7 @@ import { midiToName } from '../audio/notes';
 import type { NoteEvidence, NoteVerdict } from '../audio/chord-check';
 import type { CheckEvent, FrameEvent } from '../audio/messages';
 
-export type Mode = 'free' | 'check';
+export type Mode = 'free' | 'check' | 'song';
 
 const VERDICT_TEXT: Record<NoteVerdict, string> = {
   ok: 'есть',

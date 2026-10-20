@@ -8,7 +8,8 @@
     "dev:https": "vite --mode https",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
-    "test:synth": "npx --yes tsx test/synth-bench.ts"
+    "test:synth": "npx --yes tsx test/synth-bench.ts",
+    "test:song": "npx --yes tsx test/song-player.ts"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.3.0",

@@ -2,15 +2,53 @@ import { isBlackKey, midiToName, NOTE_NAMES } from '../audio/notes';
 
 export type KeyMark = 'detected' | 'expected' | 'pass' | 'fail';
 
+/** Положение клавиши в долях ширины клавиатуры — по нему падающие ноты встают над своей клавишей. */
+export interface KeyGeometry {
+  x: number;
+  w: number;
+  black: boolean;
+}
+
 /** Экранная клавиатура на DOM: белые клавиши — равные доли ширины, чёрные — поверх стыков. */
 export class Keyboard {
   readonly el: HTMLElement;
   private readonly keys = new Map<number, HTMLElement>();
+  private readonly geometry = new Map<number, KeyGeometry>();
+  low: number;
+  high: number;
   onTap: (midi: number) => void = () => {};
 
-  constructor(container: HTMLElement, readonly low: number, readonly high: number) {
+  constructor(container: HTMLElement, low: number, high: number) {
     this.el = container;
+    this.low = low;
+    this.high = high;
     container.classList.add('keyboard');
+    container.addEventListener('pointerdown', (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>('.key');
+      if (!t?.dataset.midi) return;
+      e.preventDefault();
+      this.onTap(Number(t.dataset.midi));
+    });
+    this.build();
+  }
+
+  /** Перестроить под другой диапазон (режим «Песня» показывает только окно под песню). */
+  setRange(low: number, high: number): void {
+    if (low === this.low && high === this.high) return;
+    this.low = low;
+    this.high = high;
+    this.build();
+  }
+
+  keyGeometry(midi: number): KeyGeometry | null {
+    return this.geometry.get(midi) ?? null;
+  }
+
+  private build(): void {
+    const { low, high } = this;
+    this.el.replaceChildren();
+    this.keys.clear();
+    this.geometry.clear();
     const whites: number[] = [];
     for (let m = low; m <= high; m++) if (!isBlackKey(m)) whites.push(m);
     const ww = 100 / whites.length;
@@ -21,32 +59,28 @@ export class Keyboard {
       key.dataset.midi = String(m);
       const label = document.createElement('span');
       label.className = 'label';
+      let left: number, width: number;
       if (isBlackKey(m)) {
         key.className = 'key black';
-        const bw = ww * 0.62;
-        key.style.left = `${whiteBefore * ww - bw / 2}%`;
-        key.style.width = `${bw}%`;
+        width = ww * 0.62;
+        left = whiteBefore * ww - width / 2;
         label.textContent = midiToName(m).replace(/\d+$/, '');
       } else {
         key.className = 'key white';
-        key.style.left = `${whiteBefore * ww}%`;
-        key.style.width = `${ww}%`;
+        left = whiteBefore * ww;
+        width = ww;
         const pc = NOTE_NAMES[m % 12];
         label.textContent = pc === 'C' ? midiToName(m) : pc;
         if (pc === 'C') key.classList.add('c');
         whiteBefore++;
       }
+      key.style.left = `${left}%`;
+      key.style.width = `${width}%`;
       key.appendChild(label);
-      container.appendChild(key);
+      this.el.appendChild(key);
       this.keys.set(m, key);
+      this.geometry.set(m, { x: left / 100, w: width / 100, black: isBlackKey(m) });
     }
-
-    container.addEventListener('pointerdown', (e) => {
-      const t = (e.target as HTMLElement).closest<HTMLElement>('.key');
-      if (!t?.dataset.midi) return;
-      e.preventDefault();
-      this.onTap(Number(t.dataset.midi));
-    });
   }
 
   mark(midi: number, mark: KeyMark, on = true): void {

@@ -1,0 +1,127 @@
+{
+ "id": "c-major-scale",
+ "title": "Гамма до мажор",
+ "bpm": 70,
+ "notes": [
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 0,
+   "dur": 1,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 62,
+   "name": "D4",
+   "start": 1,
+   "dur": 1,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 2,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 3,
+   "dur": 1,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 4,
+   "dur": 1,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 69,
+   "name": "A4",
+   "start": 5,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 71,
+   "name": "B4",
+   "start": 6,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 72,
+   "name": "C5",
+   "start": 7,
+   "dur": 1,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 71,
+   "name": "B4",
+   "start": 8,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 69,
+   "name": "A4",
+   "start": 9,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 10,
+   "dur": 1,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 11,
+   "dur": 1,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 12,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 62,
+   "name": "D4",
+   "start": 13,
+   "dur": 1,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 14,
+   "dur": 1,
+   "hand": "R",
+   "finger": 1
+  }
+ ]
+}

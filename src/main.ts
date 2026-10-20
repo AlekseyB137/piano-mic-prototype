@@ -9,6 +9,9 @@ import { Keyboard } from './ui/keyboard';
 import { Readout, VERDICT_TEXT, type Mode } from './ui/readout';
 import { DebugPanel } from './ui/debug-panel';
 import { EventLog } from './ui/event-log';
+import { FallingNotes } from './ui/falling-notes';
+import { SongPlayer } from './song/player';
+import { SONGS } from './songs';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
@@ -17,6 +20,7 @@ const LS_PARAMS = 'pianoMic.params';
 /** Увеличивать при смене значений по умолчанию — старые сохранённые пороги сбросятся. */
 const PARAMS_VERSION = 5;
 const LS_FFT = 'pianoMic.fft';
+const LS_SONG = 'pianoMic.song';
 function load<T>(key: string, fallback: T): T {
   try {
     const v = localStorage.getItem(key);
@@ -46,6 +50,11 @@ let calibration: { rmsDb: number; onsetDelta: number } | null = null;
 let lastCheckLatency: number | null = null;
 let ctxState = '—';
 let ignoredAttacks = 0;
+// Режим «Песня»
+let songIdx = Math.max(0, SONGS.findIndex((s) => s.id === load(LS_SONG, { id: SONGS[0].id }).id));
+let player = new SongPlayer(SONGS[songIdx]);
+let lastSentExpected = '';
+let lastAudioT: number | null = null;
 /** Отброшенные атаки — только для отчёта, в видимый лог не попадают. */
 const dropped: string[] = [];
 const DROPPED_MAX = 60;
@@ -59,6 +68,12 @@ const btnStart = $<HTMLButtonElement>('#btn-start');
 const btnCalib = $<HTMLButtonElement>('#btn-calib');
 const btnDebug = $<HTMLButtonElement>('#btn-debug');
 const statusDot = $('#status-dot');
+const appEl = $('#app');
+const songCanvas = $<HTMLCanvasElement>('#song-canvas');
+const songSelect = $<HTMLSelectElement>('#song-select');
+const songStatus = $('#song-status');
+const songDone = $('#song-done');
+const falling = new FallingNotes(songCanvas, (m) => keyboard.keyGeometry(m));
 const message = $('#message');
 
 const tgEnv: TelegramEnv = initTelegram((m) => log.add(m, 'info'));
@@ -216,8 +231,18 @@ debug.onCopy = async () => {
 };
 
 // --- Режимы и ожидаемые ноты ---
-function sendExpected(): void {
-  const midis = mode === 'check' ? [...expected].sort((a, b) => a - b) : [];
+function currentExpected(): number[] {
+  if (mode === 'check') return [...expected].sort((a, b) => a - b);
+  if (mode === 'song') return player.expected();
+  return [];
+}
+
+/** Отправить ожидаемые ноты анализатору; force — даже если не изменились (после Старт). */
+function sendExpected(force = false): void {
+  const midis = currentExpected();
+  const key = `${mode}:${midis.join(',')}`;
+  if (!force && key === lastSentExpected) return;
+  lastSentExpected = key;
   capture.post({ type: 'expected', midis });
   readout.setExpected(midis);
   keyboard.setOnly('expected', midis);
@@ -226,12 +251,104 @@ function sendExpected(): void {
   debug.markers = midis.map((m) => midiToFreq(m));
 }
 
+/** Окно клавиатуры под диапазон песни: целые октавы, не меньше двух. */
+function songKeyRange(): { low: number; high: number } {
+  const r = player.range();
+  const low = 12 * Math.floor(r.low / 12);
+  let high = 12 * Math.floor(r.high / 12) + 11;
+  if (high - low + 1 < 24) high += 12;
+  return { low, high };
+}
+
 function setMode(m: Mode): void {
   mode = m;
   document.querySelectorAll<HTMLButtonElement>('#mode button').forEach((b) => b.classList.toggle('active', b.dataset.mode === m));
+  appEl.classList.toggle('song-mode', m === 'song');
   readout.setMode(m);
   keyboard.clear('detected');
+  if (m === 'song') {
+    const r = songKeyRange();
+    keyboard.setRange(r.low, r.high);
+  } else keyboard.setRange(KEY_LOW, KEY_HIGH);
+  lastAudioT = null;
   sendExpected();
+  updateSongStatus();
+}
+
+// --- Песня ---
+SONGS.forEach((s, i) => {
+  const o = document.createElement('option');
+  o.value = String(i);
+  o.textContent = s.title;
+  songSelect.appendChild(o);
+});
+songSelect.value = String(songIdx);
+songSelect.addEventListener('change', () => {
+  songIdx = Number(songSelect.value);
+  save(LS_SONG, { id: SONGS[songIdx].id });
+  player = new SongPlayer(SONGS[songIdx]);
+  setMode('song');
+});
+function restartSong(): void {
+  player.restart();
+  songDone.classList.add('hidden');
+  lastAudioT = null;
+  sendExpected();
+  updateSongStatus();
+}
+$('#song-restart').addEventListener('click', restartSong);
+
+function fmtTime(sec: number): string {
+  const s = Math.round(sec);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function updateSongStatus(): void {
+  if (mode !== 'song') return;
+  const cur = player.current;
+  let text: string;
+  if (!capture.running) text = 'Нажмите «Старт», затем «Тишина 2 с»';
+  else if (!cur) text = 'Готово!';
+  else {
+    const what = cur.notes.map((n) => `${n.name} ${n.hand === 'L' ? 'Л' : 'П'}${n.finger}`).join(' + ');
+    text = `${player.waiting ? 'Ждём' : 'Дальше'}: <b>${what}</b>`;
+  }
+  songStatus.innerHTML = `${text} · ✓ ${player.hits} · ✗ ${player.mistakes}`;
+}
+
+function showSongDone(): void {
+  const total = player.steps.length;
+  songDone.replaceChildren();
+  const title = document.createElement('strong');
+  title.textContent = 'Готово!';
+  const stats = document.createElement('div');
+  stats.textContent = `Нот/аккордов: ${total} · ошибок: ${player.mistakes} · время: ${fmtTime(player.elapsedSec)}`;
+  const again = document.createElement('button');
+  again.className = 'primary';
+  again.textContent = 'Ещё раз';
+  again.addEventListener('click', restartSong);
+  songDone.append(title, stats, again);
+  songDone.classList.remove('hidden');
+}
+
+/** Вердикт анализатора в режиме «Песня». */
+function onSongCheck(allPassed: boolean, notes: { midi: number; passed: boolean }[]): void {
+  const now = capture.ctx?.currentTime ?? 0;
+  if (allPassed) {
+    falling.flash(notes.map((n) => n.midi), 'pass', now, 0.25);
+    player.result(true);
+    sendExpected();
+    if (player.finished) showSongDone();
+  } else {
+    falling.flash(notes.filter((n) => !n.passed).map((n) => n.midi), 'fail', now, 0.6);
+    player.result(false);
+    for (const n of notes) keyboard.mark(n.midi, 'fail', !n.passed);
+    // Красная подсветка — короткая вспышка, нота остаётся ждать
+    window.setTimeout(() => {
+      if (mode === 'song') keyboard.clear('fail');
+    }, 700);
+  }
+  updateSongStatus();
 }
 
 $('#mode').addEventListener('click', (e) => {
@@ -240,6 +357,7 @@ $('#mode').addEventListener('click', (e) => {
 });
 
 keyboard.onTap = (midi) => {
+  if (mode === 'song') return;
   if (mode !== 'check') {
     log.add(`Тап: ${midiToName(midi)} (${midiToFreq(midi).toFixed(1)} Гц) — включите «Проверку», чтобы выбрать ноты`);
     return;
@@ -302,11 +420,14 @@ function onEvent(ev: AnalyzerEvent): void {
       }
       break;
     case 'check': {
-      readout.setResult(ev);
       lastCheckLatency = ev.latencyMs;
-      for (const n of ev.notes) {
-        keyboard.mark(n.midi, 'pass', n.passed);
-        keyboard.mark(n.midi, 'fail', !n.passed);
+      if (mode === 'song') onSongCheck(ev.allPassed, ev.notes);
+      else {
+        readout.setResult(ev);
+        for (const n of ev.notes) {
+          keyboard.mark(n.midi, 'pass', n.passed);
+          keyboard.mark(n.midi, 'fail', !n.passed);
+        }
       }
       const parts = ev.notes.map((n) => {
         const why = !n.passed && n.evidence ? ` (${VERDICT_TEXT[n.evidence.verdict]})` : '';
@@ -383,6 +504,7 @@ btnStart.addEventListener('click', async () => {
     keyboard.clear('detected');
     log.add('Стоп');
     refreshInfo();
+    updateSongStatus();
     return;
   }
   hideMessage();
@@ -393,7 +515,9 @@ btnStart.addEventListener('click', async () => {
     ctxState = capture.ctx?.state ?? '—';
     statusDot.className = `dot ${ctxState}`;
     capture.post({ type: 'params', params });
-    sendExpected();
+    sendExpected(true);
+    lastAudioT = null;
+    updateSongStatus();
     btnStart.textContent = 'Стоп';
     btnStart.classList.add('stop');
     btnCalib.disabled = false;
@@ -434,10 +558,22 @@ btnCalib.addEventListener('click', () => {
 // --- Отрисовка (rAF, только последний кадр) ---
 let drawnFrame: FrameEvent | null = null;
 function render(): void {
+  if (mode === 'song') {
+    // Единственный источник времени — AudioContext.currentTime; без звука песня стоит
+    const ctx = capture.ctx;
+    const t = ctx && ctx.state === 'running' ? ctx.currentTime : null;
+    if (t !== null) {
+      const wasWaiting = player.waiting;
+      if (lastAudioT !== null) player.advance(Math.min(0.1, t - lastAudioT));
+      lastAudioT = t;
+      if (wasWaiting !== player.waiting) updateSongStatus();
+    } else lastAudioT = null;
+    falling.draw(player, t ?? performance.now() / 1000);
+  }
   const f = latestFrame;
   if (f && f !== drawnFrame) {
     drawnFrame = f;
-    readout.updateFrame(f);
+    if (mode !== 'song') readout.updateFrame(f);
     if (mode === 'free') keyboard.setOnly('detected', f.stableMidi !== null ? [f.stableMidi] : []);
     debug.draw(f, params.gateDb);
   }

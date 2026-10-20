@@ -51,8 +51,6 @@ const MID_HISTORY = 3;
 const NOTE_RISE_DB = 1.5;
 /** Интервалы от ноты до её гармоник ×2…×8, полутоны. */
 const SUBHARMONIC_SEMIS = [12, 19, 24, 28, 31, 34, 36];
-/** После выбора нот на экране столько секунд атаки не открывают проверку: стук пальца по телефону. */
-const SCREEN_TAP_MUTE_SEC = 0.6;
 /**
  * Пик громкости за окно проверки тише медианы недавних засчитанных ударов больше чем на столько дБ —
  * это не удар (касание, стук). Меряем пик за окно, а не в момент атаки: атака часто срабатывает на
@@ -242,8 +240,9 @@ export class Analyzer {
   }
 
   setExpected(midis: number[]): void {
+    // Глушение после касаний экрана — отдельным сообщением 'mute' от UI. Здесь не глушим:
+    // в режиме «Песня» ожидаемые ноты меняются сами после каждой засчитанной ноты.
     this.expected = Array.from(new Set(midis)).sort((a, b) => a - b);
-    this.checkMuteUntil = this.samples / this.sampleRate + SCREEN_TAP_MUTE_SEC;
     this.session.cancel();
     this.pendingCheck = null;
   }
