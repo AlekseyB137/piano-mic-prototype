@@ -275,3 +275,5 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
 .tile-name { font-size: 16px; font-weight: 700; color: var(--text); }
 .tile-meta { font-size: 12px; color: var(--text-dim); }
 .tile-best { font-size: 12px; color: var(--success); margin-top: auto; }
+
+.small-seg button { min-height: 28px; padding: 3px 10px; font-size: 12px; }

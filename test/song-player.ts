@@ -25,7 +25,7 @@ const song: Song = {
 };
 
 {
-  const p = new SongPlayer(song, 2);
+  const p = new SongPlayer(song, 'wait', 2);
   expect('Шаги: одиночные ноты и аккорд сгруппированы', p.steps.length === 3 && p.steps[2].notes.length === 2);
   expect('Вступление: старт на −2 доли, ждём C4', p.beat === -2 && p.expected().join() === '60');
   p.advance(1.5);
@@ -48,6 +48,26 @@ const song: Song = {
   expect('После конца время игры не растёт, ноты уезжают', p.elapsedSec === t && p.beat > 2);
   p.restart();
   expect('Сначала: всё сброшено', p.beat === -2 && p.hits === 0 && p.mistakes === 0 && p.expected().join() === '60');
+}
+
+// «В такт»: 60 bpm, вступление 2 доли → доля шага k (start=k) наступает в t0 + 2 + k с
+{
+  const p = new SongPlayer(song, 'tempo', 2);
+  p.tick(100); // старт аудиочасов
+  expect('В такт: первая доля через 2 с', p.stepTime(p.current!) === 102);
+  p.tick(101.9);
+  expect('В такт: время идёт без остановки', Math.abs(p.beat + 0.1) < 1e-9 && !p.waiting, `beat=${p.beat}`);
+  expect('В такт: удар на 250 мс раньше — «рано», нота остаётся', p.judge(true, 101.75) === 'early' && p.expected().join() === '60' && p.mistakes === 1);
+  expect('В такт: удар в окно (+50 мс) — засчитан', p.judge(true, 102.05) === 'hit' && p.expected().join() === '62' && Math.abs((p.lastOffsetSec ?? 0) - 0.05) < 1e-9);
+  expect('В такт: неправильная нота — ошибка, нота остаётся', p.judge(false, 103.0) === 'wrong' && p.expected().join() === '62');
+  expect('В такт: пока идёт разбор удара, пропуск не ставится', p.tick(103.25, true).length === 0 && p.expected().join() === '62');
+  const missed = p.tick(103.25); // окно D4 (доля 103) закрылось в 103.18
+  expect('В такт: окно прошло — нота пропущена, ждём аккорд', missed.length === 1 && missed[0].state === 'missed' && p.misses === 1 && p.expected().join() === '48,52');
+  expect('В такт: аккорд вовремя (−100 мс)', p.judge(true, 103.9) === 'hit' && p.finished);
+  p.tick(110);
+  expect('В такт: итог — 2 попадания, 1 пропуск, время до последнего удара 1.9 с', p.hits === 2 && p.misses === 1 && Math.abs(p.elapsedSec - 1.9) < 1e-6, `elapsed=${p.elapsedSec}`);
+  p.restart();
+  expect('В такт: сначала — часы сброшены', p.stepTime(p.current!) === null && p.misses === 0);
 }
 
 for (const s of SONGS) {

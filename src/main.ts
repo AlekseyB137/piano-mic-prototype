@@ -10,7 +10,7 @@ import { Readout, VERDICT_TEXT, type Mode } from './ui/readout';
 import { DebugPanel } from './ui/debug-panel';
 import { EventLog } from './ui/event-log';
 import { FallingNotes } from './ui/falling-notes';
-import { SongPlayer } from './song/player';
+import { SongPlayer, type PlayMode, type Step } from './song/player';
 import { SONGS } from './songs';
 import { SongPicker, type BestResult } from './ui/song-picker';
 
@@ -23,6 +23,7 @@ const PARAMS_VERSION = 5;
 const LS_FFT = 'pianoMic.fft';
 const LS_SONG = 'pianoMic.song';
 const LS_BEST = 'pianoMic.best';
+const LS_PLAY_MODE = 'pianoMic.playMode';
 function load<T>(key: string, fallback: T): T {
   try {
     const v = localStorage.getItem(key);
@@ -54,7 +55,13 @@ let ctxState = '—';
 let ignoredAttacks = 0;
 // Режим «Песня»
 let songIdx = Math.max(0, SONGS.findIndex((s) => s.id === load(LS_SONG, { id: SONGS[0].id }).id));
-let player = new SongPlayer(SONGS[songIdx]);
+let playMode: PlayMode = load<{ m: PlayMode }>(LS_PLAY_MODE, { m: 'tempo' }).m;
+let player = new SongPlayer(SONGS[songIdx], playMode);
+/** Аудиовремя = время анализатора + clockOffset (из событий 'clock' worklet'а). */
+let clockOffset: number | null = null;
+let songDoneShown = false;
+/** Анализатор разбирает удар (checkStart без вердикта) — до этого аудиовремени не помечаем пропуск. */
+let checkPendingUntil = 0;
 let lastSentExpected = '';
 let lastAudioT: number | null = null;
 /** Отброшенные атаки — только для отчёта, в видимый лог не попадают. */
@@ -76,7 +83,7 @@ const songStatus = $('#song-status');
 const songDone = $('#song-done');
 const falling = new FallingNotes(songCanvas, (m) => keyboard.keyGeometry(m));
 const bestResults = load<Record<string, BestResult>>(LS_BEST, {});
-const picker = new SongPicker($('#song-picker'), SONGS, (id) => bestResults[id] ?? null);
+const picker = new SongPicker($('#song-picker'), SONGS, (id) => bestResults[`${id}:${playMode}`] ?? null);
 const message = $('#message');
 
 const tgEnv: TelegramEnv = initTelegram((m) => log.add(m, 'info'));
@@ -284,10 +291,15 @@ function setMode(m: Mode): void {
 }
 
 // --- Песня ---
+function newPlayer(): void {
+  player = new SongPlayer(SONGS[songIdx], playMode);
+  songDoneShown = false;
+}
+
 picker.onPick = (i) => {
   songIdx = i;
   save(LS_SONG, { id: SONGS[songIdx].id });
-  player = new SongPlayer(SONGS[songIdx]);
+  newPlayer();
   picker.hide();
   songDone.classList.add('hidden');
   const r = songKeyRange();
@@ -305,12 +317,29 @@ function chooseSong(): void {
 $('#song-choose').addEventListener('click', chooseSong);
 function restartSong(): void {
   player.restart();
+  songDoneShown = false;
   songDone.classList.add('hidden');
   lastAudioT = null;
   sendExpected();
   updateSongStatus();
 }
 $('#song-restart').addEventListener('click', restartSong);
+
+// Ожидание | В такт
+const playModeButtons = document.querySelectorAll<HTMLButtonElement>('#song-play-mode button');
+function showPlayMode(): void {
+  playModeButtons.forEach((b) => b.classList.toggle('active', b.dataset.play === playMode));
+}
+playModeButtons.forEach((b) =>
+  b.addEventListener('click', () => {
+    playMode = b.dataset.play as PlayMode;
+    save(LS_PLAY_MODE, { m: playMode });
+    showPlayMode();
+    newPlayer();
+    restartSong();
+  }),
+);
+showPlayMode();
 
 function fmtTime(sec: number): string {
   const s = Math.round(sec);
@@ -326,9 +355,16 @@ function updateSongStatus(): void {
   else if (!cur) text = 'Готово!';
   else {
     const what = cur.notes.map((n) => `${n.name} ${n.hand === 'L' ? 'Л' : 'П'}${n.finger}`).join(' + ');
-    text = `${player.waiting ? 'Ждём' : 'Дальше'}: <b>${what}</b>`;
+    const lead = playMode === 'tempo' ? (player.beat < 0 ? 'Приготовьтесь' : 'Играйте') : player.waiting ? 'Ждём' : 'Дальше';
+    text = `${lead}: <b>${what}</b>`;
   }
-  songStatus.innerHTML = `${text} · ✓ ${player.hits} · ✗ ${player.mistakes}`;
+  let counters = ` · ✓ ${player.hits} · ✗ ${player.mistakes}`;
+  if (playMode === 'tempo') {
+    counters += ` · пропущено ${player.misses}`;
+    const o = player.lastOffsetSec;
+    if (o !== null) counters += ` · последняя ${o >= 0 ? '+' : '−'}${Math.abs(Math.round(o * 1000))} мс`;
+  }
+  songStatus.innerHTML = text + counters;
 }
 
 function showSongDone(): void {
@@ -337,7 +373,10 @@ function showSongDone(): void {
   const title = document.createElement('strong');
   title.textContent = 'Готово!';
   const stats = document.createElement('div');
-  stats.textContent = `Нот/аккордов: ${total} · ошибок: ${player.mistakes} · время: ${fmtTime(player.elapsedSec)}`;
+  stats.textContent =
+    playMode === 'tempo'
+      ? `Вовремя: ${player.hits} из ${total} · пропущено: ${player.misses} · ошибок: ${player.mistakes}${timingSummary()}`
+      : `Нот/аккордов: ${total} · ошибок: ${player.mistakes} · время: ${fmtTime(player.elapsedSec)}`;
   const again = document.createElement('button');
   again.className = 'primary';
   again.textContent = 'Ещё раз';
@@ -348,11 +387,15 @@ function showSongDone(): void {
   const row = document.createElement('div');
   row.className = 'row';
   row.append(again, choose);
-  // Лучший результат — меньше ошибок, при равенстве быстрее
-  const id = SONGS[songIdx].id;
+  // Лучший результат: «В такт» — больше вовремя, потом меньше ошибок; «Ожидание» — меньше ошибок, потом быстрее
+  const id = `${SONGS[songIdx].id}:${playMode}`;
   const prev = bestResults[id];
-  const cur = { mistakes: player.mistakes, seconds: Math.round(player.elapsedSec) };
-  const isBest = !prev || cur.mistakes < prev.mistakes || (cur.mistakes === prev.mistakes && cur.seconds < prev.seconds);
+  const cur: BestResult = { mistakes: player.mistakes, seconds: Math.round(player.elapsedSec), hits: player.hits, total };
+  const isBest =
+    !prev ||
+    (playMode === 'tempo'
+      ? (cur.hits ?? 0) > (prev.hits ?? 0) || ((cur.hits ?? 0) === (prev.hits ?? 0) && cur.mistakes < prev.mistakes)
+      : cur.mistakes < prev.mistakes || (cur.mistakes === prev.mistakes && cur.seconds < prev.seconds));
   if (isBest) {
     bestResults[id] = cur;
     save(LS_BEST, bestResults);
@@ -364,14 +407,47 @@ function showSongDone(): void {
   songDone.classList.remove('hidden');
 }
 
-/** Вердикт анализатора в режиме «Песня». */
-function onSongCheck(allPassed: boolean, notes: { midi: number; passed: boolean }[]): void {
+/** Среднее отклонение попаданий: помогает понять, не нужна ли поправка на задержку. */
+function timingSummary(): string {
+  const o = player.steps.map((s) => s.offsetSec).filter((x): x is number => x !== null);
+  if (!o.length) return '';
+  const mean = (o.reduce((a, b) => a + b, 0) / o.length) * 1000;
+  return ` · в среднем ${mean >= 0 ? '+' : '−'}${Math.abs(Math.round(mean))} мс`;
+}
+
+function onMissed(steps: Step[]): void {
+  if (!steps.length) return;
   const now = capture.ctx?.currentTime ?? 0;
+  falling.flash(steps.flatMap((s) => s.notes.map((n) => n.pitch)), 'fail', now, 0.4);
+  log.add(`Пропущено: ${steps.map((s) => s.notes.map((n) => n.name).join('+')).join(', ')}`, 'fail');
+  sendExpected();
+  updateSongStatus();
+}
+
+const JUDGE_TEXT = { hit: 'вовремя', early: 'рано', late: 'поздно', wrong: 'не та нота', ignored: '' } as const;
+
+/** Вердикт анализатора в режиме «Песня». onsetTime — время атаки в часах анализатора. */
+function onSongCheck(allPassed: boolean, notes: { midi: number; passed: boolean }[], onsetTime: number): void {
+  const now = capture.ctx?.currentTime ?? 0;
+  if (playMode === 'tempo') {
+    if (clockOffset === null) return; // часы ещё не привязаны — оценить ритм нельзя
+    const j = player.judge(allPassed, onsetTime + clockOffset);
+    if (j === 'ignored') return;
+    const off = player.lastOffsetSec;
+    log.add(`В такт: ${JUDGE_TEXT[j]}${j === 'hit' && off !== null ? ` (${off >= 0 ? '+' : '−'}${Math.abs(Math.round(off * 1000))} мс)` : ''}`, j === 'hit' ? 'pass' : 'fail');
+    if (j === 'hit') {
+      falling.flash(notes.map((n) => n.midi), 'pass', now, 0.25);
+      sendExpected();
+    } else {
+      falling.flash(notes.filter((n) => !n.passed || j !== 'wrong').map((n) => n.midi), 'fail', now, 0.4);
+    }
+    updateSongStatus();
+    return;
+  }
   if (allPassed) {
     falling.flash(notes.map((n) => n.midi), 'pass', now, 0.25);
     player.result(true);
     sendExpected();
-    if (player.finished) showSongDone();
   } else {
     falling.flash(notes.filter((n) => !n.passed).map((n) => n.midi), 'fail', now, 0.6);
     player.result(false);
@@ -453,8 +529,9 @@ function onEvent(ev: AnalyzerEvent): void {
       }
       break;
     case 'check': {
+      checkPendingUntil = 0;
       lastCheckLatency = ev.latencyMs;
-      if (mode === 'song') onSongCheck(ev.allPassed, ev.notes);
+      if (mode === 'song') onSongCheck(ev.allPassed, ev.notes, ev.onsetTime);
       else {
         readout.setResult(ev);
         for (const n of ev.notes) {
@@ -475,7 +552,11 @@ function onEvent(ev: AnalyzerEvent): void {
       if (!debug.root.classList.contains('collapsed')) refreshInfo();
       break;
     }
+    case 'clock':
+      clockOffset = ev.audioTime - ev.analyzerTime;
+      break;
     case 'checkStart':
+      checkPendingUntil = (capture.ctx?.currentTime ?? 0) + 0.5;
       // Новый удар: прошлый результат больше не актуален, чтобы старая подсветка не путала
       keyboard.clear('pass');
       keyboard.clear('fail');
@@ -550,6 +631,7 @@ btnStart.addEventListener('click', async () => {
     capture.post({ type: 'params', params });
     sendExpected(true);
     lastAudioT = null;
+    clockOffset = null;
     updateSongStatus();
     btnStart.textContent = 'Стоп';
     btnStart.classList.add('stop');
@@ -596,12 +678,22 @@ function render(): void {
     const ctx = capture.ctx;
     const t = ctx && ctx.state === 'running' ? ctx.currentTime : null;
     if (t !== null) {
-      const wasWaiting = player.waiting;
-      if (lastAudioT !== null) player.advance(Math.min(0.1, t - lastAudioT));
+      if (playMode === 'tempo') {
+        const wasLeadIn = player.beat < 0;
+        onMissed(player.tick(t, t < checkPendingUntil));
+        if (wasLeadIn !== player.beat < 0) updateSongStatus();
+      } else {
+        const wasWaiting = player.waiting;
+        if (lastAudioT !== null) player.advance(Math.min(0.1, t - lastAudioT));
+        if (wasWaiting !== player.waiting) updateSongStatus();
+      }
       lastAudioT = t;
-      if (wasWaiting !== player.waiting) updateSongStatus();
+      if (player.finished && !songDoneShown) {
+        songDoneShown = true;
+        showSongDone();
+      }
     } else lastAudioT = null;
-    falling.draw(player, t ?? performance.now() / 1000);
+    falling.draw(player, t ?? performance.now() / 1000, playMode);
   }
   const f = latestFrame;
   if (f && f !== drawnFrame) {

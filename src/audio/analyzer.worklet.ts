@@ -7,6 +7,8 @@ import type { AnalyzerEvent, WorkletInMessage } from './messages';
 
 // Глобальные объекты AudioWorkletGlobalScope (в стандартных lib TypeScript их нет)
 declare const sampleRate: number;
+/** Время начала текущего блока по часам AudioContext. */
+declare const currentTime: number;
 declare class AudioWorkletProcessor {
   readonly port: MessagePort;
   constructor(options?: unknown);
@@ -15,6 +17,7 @@ declare function registerProcessor(name: string, ctor: new (options: { processor
 
 class PianoAnalyzerProcessor extends AudioWorkletProcessor {
   private readonly analyzer: Analyzer;
+  private nextClockAt = 0;
 
   constructor(options: { processorOptions?: { bigFft?: number } }) {
     super(options);
@@ -43,6 +46,11 @@ class PianoAnalyzerProcessor extends AudioWorkletProcessor {
   process(inputs: Float32Array[][]): boolean {
     const ch = inputs[0]?.[0];
     if (ch && ch.length) {
+      // Раз в 2 с — привязка часов анализатора к AudioContext.currentTime (для оценки ритма)
+      if (this.analyzer.time >= this.nextClockAt) {
+        this.port.postMessage({ type: 'clock', audioTime: currentTime, analyzerTime: this.analyzer.time } satisfies AnalyzerEvent);
+        this.nextClockAt = this.analyzer.time + 2;
+      }
       const events = this.analyzer.process(ch);
       for (const ev of events) this.send(ev);
     }

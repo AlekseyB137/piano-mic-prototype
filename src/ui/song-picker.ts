@@ -3,6 +3,9 @@ import type { Song } from '../song/types';
 export interface BestResult {
   mistakes: number;
   seconds: number;
+  /** «В такт»: сколько шагов сыграно вовремя и сколько их всего. */
+  hits?: number;
+  total?: number;
 }
 
 function handsText(s: Song): string {
@@ -64,7 +67,11 @@ export class SongPicker {
       const res = document.createElement('span');
       res.className = 'tile-best';
       const b = this.best(s.id);
-      res.textContent = b ? `Лучший результат: ${b.mistakes === 0 ? 'без ошибок' : `ошибок ${b.mistakes}`}` : 'Ещё не играли';
+      res.textContent = !b
+        ? 'Ещё не играли'
+        : b.hits !== undefined && b.total
+          ? `Лучший результат: вовремя ${b.hits} из ${b.total}`
+          : `Лучший результат: ${b.mistakes === 0 ? 'без ошибок' : `ошибок ${b.mistakes}`}`;
       tile.append(name, meta, res);
       tile.addEventListener('click', () => this.onPick(i));
       grid.appendChild(tile);

@@ -1,4 +1,4 @@
-import type { SongPlayer } from '../song/player';
+import type { PlayMode, SongPlayer } from '../song/player';
 import type { KeyGeometry } from './keyboard';
 
 /** Сколько долей видно над линией удара. */
@@ -42,7 +42,7 @@ export class FallingNotes {
     for (const m of midis) this.flashes.set(m, { kind, until: now + sec });
   }
 
-  draw(player: SongPlayer, now: number): void {
+  draw(player: SongPlayer, now: number, mode: PlayMode = 'wait'): void {
     const c = this.canvas;
     const dpr = window.devicePixelRatio || 1;
     const W = c.clientWidth, H = c.clientHeight;
@@ -97,8 +97,11 @@ export class FallingNotes {
         if (step.state === 'done') {
           fill = colPass;
           alpha = 0.35;
+        } else if (step.state === 'missed') {
+          fill = colFail;
+          alpha = 0.45;
         }
-        const fl = step.state === 'current' ? this.flashes.get(n.pitch) : undefined;
+        const fl = step.state === 'current' || step.state === 'missed' ? this.flashes.get(n.pitch) : undefined;
         if (fl && fl.until > now) fill = fl.kind === 'fail' ? colFail : colPass;
 
         g.globalAlpha = alpha;
@@ -143,5 +146,18 @@ export class FallingNotes {
     // Линия удара
     g.fillStyle = player.waiting ? css('--warn', '#ffc94d') : css('--text-dim', '#8b92a1');
     g.fillRect(0, hitY - 1, W, 3);
+
+    // «В такт»: отсчёт вступления 4-3-2-1 (метроном звуком нельзя — его услышит микрофон)
+    if (mode === 'tempo' && player.beat < 0 && player.beat > -player.leadInBeats) {
+      const n = Math.ceil(-player.beat);
+      const frac = -player.beat - (n - 1); // 1 → 0 в течение доли
+      g.globalAlpha = 0.25 + 0.6 * frac;
+      g.fillStyle = css('--text', '#e8eaef');
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.font = `800 ${Math.min(H * 0.45, 120)}px -apple-system, system-ui, sans-serif`;
+      g.fillText(String(n), W / 2, H * 0.5);
+      g.globalAlpha = 1;
+    }
   }
 }

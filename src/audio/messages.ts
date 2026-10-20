@@ -103,4 +103,20 @@ export interface CheckStartEvent {
   t: number;
 }
 
-export type AnalyzerEvent = InfoEvent | FrameEvent | OnsetEvent | NoteEvent | CheckEvent | CalibratedEvent | DroppedEvent | CheckStartEvent;
+/** Привязка часов: в момент audioTime (AudioContext.currentTime) время анализатора было analyzerTime. */
+export interface ClockEvent {
+  type: 'clock';
+  audioTime: number;
+  analyzerTime: number;
+}
+
+export type AnalyzerEvent =
+  | InfoEvent
+  | FrameEvent
+  | OnsetEvent
+  | NoteEvent
+  | CheckEvent
+  | CalibratedEvent
+  | DroppedEvent
+  | CheckStartEvent
+  | ClockEvent;

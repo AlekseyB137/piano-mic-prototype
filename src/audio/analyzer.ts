@@ -231,6 +231,11 @@ export class Analyzer {
     }
   }
 
+  /** Время анализатора (с от первого сэмпла) — в нём приходят t и onsetTime всех событий. */
+  get time(): number {
+    return this.samples / this.sampleRate;
+  }
+
   info(): AnalyzerEvent {
     return { type: 'info', sampleRate: this.sampleRate, hop: HOP, smallFft: SMALL_FFT, bigFft: this.bigN };
   }
