@@ -296,6 +296,7 @@ function setMode(m: Mode): void {
 // --- Песня ---
 function newPlayer(): void {
   player = makePlayer();
+  falling.reset();
   songDoneShown = false;
 }
 
@@ -356,21 +357,8 @@ function updateSongStatus(): void {
   if (picker.visible) text = '';
   else if (!capture.running) text = 'Нажмите «Старт», затем «Тишина 2 с»';
   else if (!cur) text = 'Готово!';
-  else {
-    const what = cur.notes.map((n) => `${n.name}\u00a0(${n.finger})`).join(' + ');
-    const lead =
-      playMode === 'tempo'
-        ? player.beat < 0
-          ? 'Приготовьтесь'
-          : player.waiting
-            ? 'Опоздали — ждём'
-            : 'Играйте'
-        : player.waiting
-          ? 'Ждём'
-          : 'Дальше';
-    text = `${lead}: <b>${what}</b>`;
-  }
-  let counters = ` · ✓ ${player.hits} · ✗ ${player.mistakes}`;
+  else text = '';
+  let counters = `${text ? ' · ' : ''}✓ ${player.hits} · ✗ ${player.mistakes}`;
   if (playMode === 'tempo') {
     counters += ` · поздно ${player.lates}`;
     const o = player.lastOffsetSec;
@@ -454,9 +442,19 @@ function timingSummary(): string {
 
 const JUDGE_TEXT = { hit: 'вовремя', early: 'рано', late: 'поздно (игра ждала)', wrong: 'не та нота', ignored: '' } as const;
 
+/** Шаг сыгран: нота «уходит в клавишу», клавиша вспыхивает зелёным. */
+function songStepDone(stepIndex: number, midis: number[], now: number): void {
+  falling.sink(stepIndex, now);
+  for (const m of midis) keyboard.mark(m, 'pass', true);
+  window.setTimeout(() => {
+    if (mode === 'song') for (const m of midis) keyboard.mark(m, 'pass', false);
+  }, 320);
+}
+
 /** Вердикт анализатора в режиме «Песня». onsetTime — время атаки в часах анализатора. */
 function onSongCheck(allPassed: boolean, notes: { midi: number; passed: boolean }[], onsetTime: number): void {
   const now = capture.ctx?.currentTime ?? 0;
+  const step = player.current;
   if (playMode === 'tempo') {
     if (clockOffset === null) return; // часы ещё не привязаны — оценить ритм нельзя
     const j = player.judge(allPassed, onsetTime + clockOffset, now);
@@ -464,7 +462,7 @@ function onSongCheck(allPassed: boolean, notes: { midi: number; passed: boolean 
     const off = player.lastOffsetSec;
     log.add(`В такт: ${JUDGE_TEXT[j]}${j === 'hit' && off !== null ? ` (${off >= 0 ? '+' : '−'}${Math.abs(Math.round(off * 1000))} мс)` : ''}`, j === 'hit' ? 'pass' : 'fail');
     if (j === 'hit' || j === 'late') {
-      falling.flash(notes.map((n) => n.midi), 'pass', now, 0.25);
+      if (step) songStepDone(step.index, notes.map((n) => n.midi), now);
       sendExpected();
     } else {
       falling.flash(notes.filter((n) => !n.passed || j !== 'wrong').map((n) => n.midi), 'fail', now, 0.4);
@@ -473,7 +471,7 @@ function onSongCheck(allPassed: boolean, notes: { midi: number; passed: boolean 
     return;
   }
   if (allPassed) {
-    falling.flash(notes.map((n) => n.midi), 'pass', now, 0.25);
+    if (step) songStepDone(step.index, notes.map((n) => n.midi), now);
     player.result(true);
     sendExpected();
   } else {

@@ -5,6 +5,11 @@ import type { KeyGeometry } from './keyboard';
 const LOOKAHEAD_BEATS = 4;
 /** Зазор между соседними нотами по вертикали, px — чтобы повторы одной ноты читались раздельно. */
 const NOTE_GAP = 3;
+/** Длительность анимации «нота уходит в клавишу», с. */
+const SINK_SEC = 0.32;
+
+const easeOut = (p: number) => 1 - (1 - p) * (1 - p);
+const easeIn = (p: number) => p * p;
 
 interface Flash {
   kind: 'pass' | 'fail';
@@ -28,10 +33,13 @@ function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number,
 
 /**
  * Падающие ноты над клавиатурой. Ноты встают ровно над своими клавишами (геометрия берётся
- * у клавиатуры), линия удара — нижний край холста. На ноте: палец (крупно), нота и рука.
+ * у клавиатуры), линия удара — нижний край холста. На ноте — буква звука, под ней палец.
+ * Несыгранная нота — оранжевая (левая рука — синяя), сыгранная — зелёная и «уходит в клавишу».
  */
 export class FallingNotes {
   private readonly flashes = new Map<number, Flash>();
+  /** Анимация «ушла в клавишу»: индекс шага → момент попадания. */
+  private readonly sinks = new Map<number, number>();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -40,6 +48,16 @@ export class FallingNotes {
 
   flash(midis: number[], kind: 'pass' | 'fail', now: number, sec = 0.5): void {
     for (const m of midis) this.flashes.set(m, { kind, until: now + sec });
+  }
+
+  /** Шаг сыгран — запустить анимацию «нота уходит в клавишу». */
+  sink(stepIndex: number, now: number): void {
+    this.sinks.set(stepIndex, now);
+  }
+
+  reset(): void {
+    this.sinks.clear();
+    this.flashes.clear();
   }
 
   draw(player: SongPlayer, now: number, mode: PlayMode = 'wait'): void {
@@ -72,34 +90,52 @@ export class FallingNotes {
     }
     g.globalAlpha = 1;
 
-    const colR = css('--hand-r', '#4ea8ff');
-    const colL = css('--hand-l', '#ffa94d');
+    const colR = css('--note-r', '#ffa94d');
+    const colL = css('--note-l', '#4ea8ff');
     const colPass = css('--success', '#3ccf7e');
     const colFail = css('--danger', '#ff5c5c');
     const colText = '#0b0d12';
 
     for (const step of player.steps) {
+      // Сыгранный шаг виден только во время анимации «ухода в клавишу»
+      let sinkP = -1;
+      if (step.state === 'done') {
+        const at = this.sinks.get(step.index);
+        if (at === undefined || now - at > SINK_SEC) continue;
+        sinkP = Math.max(0, (now - at) / SINK_SEC);
+      }
       for (const n of step.notes) {
         const geo = this.geometry(n.pitch);
         if (!geo) continue;
         const bottom = hitY - (n.start - player.beat) * ppb;
         const top = bottom - n.dur * ppb + NOTE_GAP;
-        if (bottom < -4 || top > H) continue;
+        if (sinkP < 0 && (bottom < -4 || top > H)) continue;
         const pad = geo.w * W * (geo.black ? 0.04 : 0.1);
         const x = geo.x * W + pad;
         const w = geo.w * W - 2 * pad;
-        const yTop = Math.max(top, -10);
-        const yBot = Math.min(bottom, hitY);
+        let yTop = Math.max(top, -10);
+        let yBot = Math.min(bottom, hitY);
+        let alpha = 1;
+        let fill = n.hand === 'L' ? colL : colR;
+
+        if (sinkP >= 0) {
+          // Нота съезжает к линии (если сыграна заранее) и «проваливается» в клавишу
+          const h0 = Math.max(4, yBot - yTop);
+          const b = yBot + (hitY - yBot) * easeOut(Math.min(1, sinkP / 0.35));
+          const h = h0 * (1 - easeIn(sinkP));
+          yBot = b;
+          yTop = b - h;
+          fill = colPass;
+          alpha = 1 - 0.5 * sinkP;
+          // Вспышка у клавиши
+          g.globalAlpha = (1 - sinkP) * 0.8;
+          g.fillStyle = colPass;
+          g.fillRect(x - 2, hitY - 6, w + 4, 8);
+        }
         if (yBot - yTop < 2) continue;
 
-        let fill = n.hand === 'L' ? colL : colR;
-        let alpha = 1;
-        if (step.state === 'done') {
-          fill = step.late ? css('--warn', '#ffc94d') : colPass; // «поздно» — оранжевым
-          alpha = 0.35;
-        }
         const fl = step.state === 'current' ? this.flashes.get(n.pitch) : undefined;
-        if (fl && fl.until > now) fill = fl.kind === 'fail' ? colFail : colPass;
+        if (fl && fl.until > now && fl.kind === 'fail') fill = colFail;
 
         g.globalAlpha = alpha;
         g.fillStyle = fill;
@@ -116,24 +152,24 @@ export class FallingNotes {
         }
         g.globalAlpha = alpha;
 
-        // Подписи: палец крупно, под ним нота; на короткой ноте — в одну строку.
-        // Рука показывается только цветом (правая — --hand-r, левая — --hand-l).
+        // Подписи: буква звука (без октавы), под ней — палец
         const h = yBot - yTop;
         if (h > 14 && w > 14) {
           g.fillStyle = colText;
           g.textAlign = 'center';
           g.textBaseline = 'middle';
           const cx = x + w / 2;
-          const fs = Math.min(22, w * 0.6, h * 0.5);
+          const letter = n.name.replace(/-?\d+$/, '');
+          const fs = Math.min(22, w * 0.55, h * 0.45);
           if (h > fs + 18) {
-            g.font = `700 ${fs}px -apple-system, system-ui, sans-serif`;
-            g.fillText(String(n.finger), cx, yBot - h / 2 - 6);
-            g.font = `600 ${Math.min(11, w * 0.3)}px -apple-system, system-ui, sans-serif`;
-            g.fillText(n.name, cx, yBot - 9);
+            g.font = `800 ${fs}px -apple-system, system-ui, sans-serif`;
+            g.fillText(letter, cx, yBot - h / 2 - 6);
+            g.font = `600 ${Math.min(12, w * 0.3)}px -apple-system, system-ui, sans-serif`;
+            g.fillText(String(n.finger), cx, yBot - 10);
           } else {
-            const fs1 = Math.min(14, h * 0.6, w * 0.28);
-            g.font = `700 ${fs1}px -apple-system, system-ui, sans-serif`;
-            g.fillText(`${n.finger} ${n.name}`, cx, yBot - h / 2);
+            const fs1 = Math.min(14, h * 0.6, w * 0.3);
+            g.font = `800 ${fs1}px -apple-system, system-ui, sans-serif`;
+            g.fillText(`${letter} ${n.finger}`, cx, yBot - h / 2);
           }
         }
         g.globalAlpha = 1;

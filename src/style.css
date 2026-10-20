@@ -13,8 +13,9 @@
   --key-white: #f4f4f2;
   --key-white-text: #555;
   --key-black: #1b1d22;
-  --hand-r: #4ea8ff;
-  --hand-l: #ffa94d;
+  /* Несыгранные ноты: правая рука — оранжевая, левая — синяя; сыгранные — зелёные (--success) */
+  --note-r: #ffa94d;
+  --note-l: #4ea8ff;
   color-scheme: dark;
 
   /* Безопасные зоны: вырез экрана + кнопки Telegram в полноэкранном режиме */
@@ -283,5 +284,5 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
 #app.song-overlay > #keyboard { display: none; }
 
 .hand-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 3px 0 4px; vertical-align: middle; }
-.hand-dot.r { background: var(--hand-r); }
-.hand-dot.l { background: var(--hand-l); }
+.hand-dot.r { background: var(--note-r); }
+.hand-dot.l { background: var(--note-l); }
