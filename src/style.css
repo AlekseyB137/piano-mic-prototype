@@ -300,3 +300,5 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
 /* Во время игры кнопки над нотами скрыты (касание поля показывает их на 4 с), счётчики остаются */
 #app.song-playing .song-hud > button,
 #app.song-playing .song-hud > .seg { display: none; }
+
+.key.early { background: var(--warn) !important; color: #2a2205; }

@@ -57,10 +57,11 @@ const song: Song = {
   expect('В такт: первая доля через 2 с', p.stepTime(p.current!) === 102);
   p.tick(101.9);
   expect('В такт: время идёт', Math.abs(p.beat + 0.1) < 1e-9 && !p.waiting, `beat=${p.beat}`);
-  expect('В такт: удар на 250 мс раньше — «рано», но нота принята', p.judge(true, 101.75, 101.8) === 'early' && p.expected().join() === '62' && p.earlies === 1 && p.hits === 0 && p.mistakes === 0);
+  expect('В такт: удар на 250 мс раньше — «рано», НЕ засчитано, не ошибка', p.judge(true, 101.75, 101.8) === 'early' && p.expected().join() === '60' && p.earlies === 1 && p.hits === 0 && p.mistakes === 0);
+  expect('В такт: та же нота в окне касания — вовремя', p.judge(true, 102.0, 102.05) === 'hit' && p.expected().join() === '62' && p.hits === 1);
   p.tick(103.1);
   expect('В такт: на экране нота не уходит за линию, пока не сыграна', p.displayBeat <= 1 + 1e-9 && p.beat > 1, `display=${p.displayBeat} beat=${p.beat}`);
-  expect('В такт: удар в окно (+50 мс) — вовремя', p.judge(true, 103.05, 103.1) === 'hit' && p.expected().join() === '48,52' && p.hits === 1);
+  expect('В такт: удар в окно (+50 мс) — вовремя', p.judge(true, 103.05, 103.1) === 'hit' && p.expected().join() === '48,52' && p.hits === 2);
   expect('В такт: неправильная нота — ошибка, нота остаётся', p.judge(false, 103.9, 103.95) === 'wrong' && p.expected().join() === '48,52' && p.mistakes === 1);
   p.tick(104.5); // окно аккорда (доля 104) закрылось в 104.18
   expect('В такт: окно прошло — игра стоит и ждёт аккорд', p.waiting && p.expected().join() === '48,52' && Math.abs(p.beat - 2.18) < 1e-9, `beat=${p.beat}`);

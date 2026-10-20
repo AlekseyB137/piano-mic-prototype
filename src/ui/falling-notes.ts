@@ -16,8 +16,10 @@ const SINK_SEC = 0.32;
 const easeOut = (p: number) => 1 - (1 - p) * (1 - p);
 const easeIn = (p: number) => p * p;
 
+export type FlashKind = 'pass' | 'fail' | 'early';
+
 interface Flash {
-  kind: 'pass' | 'fail';
+  kind: FlashKind;
   until: number;
 }
 
@@ -51,7 +53,7 @@ export class FallingNotes {
     private readonly geometry: (midi: number) => KeyGeometry | null,
   ) {}
 
-  flash(midis: number[], kind: 'pass' | 'fail', now: number, sec = 0.5): void {
+  flash(midis: number[], kind: FlashKind, now: number, sec = 0.5): void {
     for (const m of midis) this.flashes.set(m, { kind, until: now + sec });
   }
 
@@ -141,7 +143,18 @@ export class FallingNotes {
         if (yBot - yTop < 2) continue;
 
         const fl = step.state === 'current' ? this.flashes.get(n.pitch) : undefined;
-        if (fl && fl.until > now && fl.kind === 'fail') fill = colFail;
+        const flashing = fl !== undefined && fl.until > now;
+        if (flashing && fl.kind === 'fail') fill = colFail;
+        if (flashing && fl.kind === 'early') {
+          fill = css('--warn', '#ffc94d');
+          // Подсказка над нотой: нажатие услышано, но нота ещё не на линии
+          g.globalAlpha = 1;
+          g.fillStyle = css('--warn', '#ffc94d');
+          g.textAlign = 'center';
+          g.textBaseline = 'bottom';
+          g.font = `800 13px -apple-system, system-ui, sans-serif`;
+          g.fillText('рано', x + w / 2, Math.max(14, yTop - 3));
+        }
 
         g.globalAlpha = alpha;
         g.fillStyle = fill;

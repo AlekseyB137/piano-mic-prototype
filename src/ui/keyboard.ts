@@ -1,6 +1,6 @@
 import { isBlackKey, midiToName, NOTE_NAMES } from '../audio/notes';
 
-export type KeyMark = 'detected' | 'expected' | 'pass' | 'fail';
+export type KeyMark = 'detected' | 'expected' | 'pass' | 'fail' | 'early';
 
 /** Положение клавиши в долях ширины клавиатуры — по нему падающие ноты встают над своей клавишей. */
 export interface KeyGeometry {

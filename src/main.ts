@@ -448,7 +448,7 @@ function timingSummary(): string {
   return ` · в среднем ${mean >= 0 ? '+' : '−'}${Math.abs(Math.round(mean))} мс`;
 }
 
-const JUDGE_TEXT = { hit: 'вовремя', early: 'рано (принято)', late: 'поздно (игра ждала)', wrong: 'не та нота', ignored: '' } as const;
+const JUDGE_TEXT = { hit: 'вовремя', early: 'рано (не засчитано)', late: 'поздно (игра ждала)', wrong: 'не та нота', ignored: '' } as const;
 
 /** Шаг сыгран: нота «уходит в клавишу», клавиша вспыхивает зелёным. */
 function songStepDone(stepIndex: number, midis: number[], now: number): void {
@@ -467,15 +467,22 @@ function onSongCheck(allPassed: boolean, notes: { midi: number; passed: boolean 
     if (clockOffset === null) return; // часы ещё не привязаны — оценить ритм нельзя
     const j = player.judge(allPassed, onsetTime + clockOffset, now);
     if (j === 'ignored') return;
-    const off = player.lastOffsetSec;
-    const o = step?.offsetSec ?? off;
+    const o = j === 'hit' || j === 'late' ? (step?.offsetSec ?? null) : null;
     log.add(
-      `В такт: ${JUDGE_TEXT[j]}${j !== 'wrong' && o !== null ? ` (${o >= 0 ? '+' : '−'}${Math.abs(Math.round(o * 1000))} мс)` : ''}`,
-      j === 'wrong' ? 'fail' : 'pass',
+      `В такт: ${JUDGE_TEXT[j]}${o !== null ? ` (${o >= 0 ? '+' : '−'}${Math.abs(Math.round(o * 1000))} мс)` : ''}`,
+      j === 'hit' || j === 'late' ? 'pass' : 'fail',
     );
-    if (j === 'hit' || j === 'late' || j === 'early') {
+    if (j === 'hit' || j === 'late') {
       if (step) songStepDone(step.index, notes.map((n) => n.midi), now);
       sendExpected();
+    } else if (j === 'early') {
+      // Услышано, но рано: видимый отклик обязателен, иначе кажется, что нажатие не услышано
+      const midis = notes.map((n) => n.midi);
+      falling.flash(midis, 'early', now, 0.5);
+      for (const m of midis) keyboard.mark(m, 'early', true);
+      window.setTimeout(() => {
+        if (mode === 'song') keyboard.clear('early');
+      }, 500);
     } else {
       falling.flash(notes.filter((n) => !n.passed || j !== 'wrong').map((n) => n.midi), 'fail', now, 0.4);
     }
