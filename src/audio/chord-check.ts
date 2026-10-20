@@ -177,14 +177,13 @@ export function evaluateNotes(ctx: SpectrumContext, expected: number[], p: Chord
 
     // Наличие ноты
     let present: boolean;
-    if (own.length === 0) {
-      // Все гармоники общие (например, C3 и C4 вместе): основной тон C4 — это 2-я гармоника C3,
-      // и сама по себе C3 его тоже даёт. Поэтому, если в аккорде есть нота на октаву (две) ниже,
-      // требуем, чтобы её чётный партиал был заметно громче соседних нечётных.
-      present = h1.snrDb >= p.snrDb && octaveBoostOk(ctx, midi, set, p);
-    } else {
-      present = strongOwn.length >= Math.min(p.minHarmonics, own.length);
-    }
+    if (own.length === 0) present = h1.snrDb >= p.snrDb;
+    else present = strongOwn.length >= Math.min(p.minHarmonics, own.length);
+    // Основной тон совпадает с k-й гармоникой ожидаемой НИЖНЕЙ ноты (C4 над C3, G4 над C3…):
+    // нижняя нота сама даёт энергию на этой частоте. Требуем, чтобы её партиалы, кратные k,
+    // были заметно громче соседних — иначе верхнюю ноту не играли (живой/стендовый случай:
+    // Twinkle двумя руками, C3+G4 → сыграна только C3, а G4 «слышна»).
+    if (present && h1.shared) present = harmonicBoostOk(ctx, midi, set, p);
 
     // Защита: октава выше
     let octaveUp = false;
@@ -266,19 +265,22 @@ function peakAmp(ctx: SpectrumContext, freq: number, tolCents: number): number {
 }
 
 /**
- * Октавный аккорд (C3+C4, C2+C4): все партиалы верхней ноты совпадают с партиалами нижней
- * (у октавы — с чётными, у двух октав — с кратными 4). Если верхнюю ноту сыграли, эти партиалы
- * нижней заметно громче соседних «чужих» (нечётных). Сравниваем по нескольким партиалам
- * и берём медиану. Основной тон (×1) и ×2 НЕ используем: микрофон телефона почти не слышит
- * ~100–150 Гц (×2 тогда кажется усиленным), а ×2 и без верхней ноты на ~3.5 дБ громче ×3.
- * Нет нижней октавы в аккорде или нет данных для сравнения — проверку не применяем.
+ * Аккорд, где верхняя нота — гармоника нижней (k = fH / fL ≈ 2…8: октава, дуодецима, две октавы…).
+ * Все партиалы верхней ноты совпадают с партиалами нижней, кратными k. Если верхнюю сыграли, эти
+ * партиалы нижней заметно громче соседних (h ± 1). Сравниваем по нескольким и берём медиану.
+ * Для k = 2 и 4 не используем ×1 и ×2 нижней: микрофон телефона почти не слышит ~100–150 Гц
+ * (×2 тогда кажется усиленным), а ×2 и без верхней ноты на ~3.5 дБ громче ×3.
+ * Нет такой нижней ноты в аккорде или нет данных для сравнения — проверку не применяем.
  */
-function octaveBoostOk(ctx: SpectrumContext, midi: number, set: Set<number>, p: ChordCheckParams): boolean {
+function harmonicBoostOk(ctx: SpectrumContext, midi: number, set: Set<number>, p: ChordCheckParams): boolean {
   if (p.octaveChordDb <= 0) return true;
-  for (const [semis, centers] of [[12, [4, 6, 8]], [24, [4, 8]]] as const) {
-    const low = midi - semis;
-    if (!set.has(low)) continue;
+  const fH = midiToFreq(midi);
+  for (const low of [...set].sort((a, b) => a - b)) {
+    if (low >= midi) continue;
     const fL = midiToFreq(low);
+    const k = Math.round(fH / fL);
+    if (k < 2 || k > 8 || Math.abs(1200 * Math.log2(fH / (k * fL))) > 30) continue;
+    const centers = k === 2 ? [4, 6, 8] : k === 4 ? [4, 8] : [k, 2 * k, 3 * k].filter((h) => h <= 16);
     const ratios: number[] = [];
     for (const h of centers) {
       const center = peakAmp(ctx, partialFreq(fL, h), p.toleranceCents);

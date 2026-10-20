@@ -38,7 +38,8 @@
   пианино все удары «вовремя» шли +100…+164 мс; кнопка «Учесть задержку» на экране «Готово!» сдвигает её
   на медиану отклонений.
   src/song/player.ts — логика без DOM (`npm run test:song`), src/ui/falling-notes.ts — canvas,
-  песни в src/songs/*.json (формат ниже, start/dur в долях): Twinkle Twinkle Little Star, Ода к радости. Время — только AudioContext.currentTime.
+  песни в src/songs/*.json (формат ниже, start/dur в долях): Twinkle Twinkle Little Star (правая рука и
+  двумя руками — бас C3/F3/G3 на каждые 2 доли), Ода к радости. Темп 50–100 % (кнопки − / +). Время — только AudioContext.currentTime.
 - Следующий шаг: тесты на реальном пианино в Telegram на iPhone и Android, разбор отчётов
   («Поделиться отчётом»), подстройка порогов. Найденные на живом звуке ошибки по возможности
   воспроизводить кейсом в стенде.

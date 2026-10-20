@@ -30,9 +30,11 @@ function stepsText(s: Song): string {
   }
   const steps = byStart.size;
   const chords = [...byStart.values()].filter((c) => c > 1).length;
-  return chords * 2 > steps
+  // Только аккорды — «N аккордов»; иначе считаем все ноты (двумя руками: мелодия + бас)
+  const n = s.notes.length;
+  return chords === steps
     ? `${steps} ${plural(steps, 'аккорд', 'аккорда', 'аккордов')}`
-    : `${steps} ${plural(steps, 'нота', 'ноты', 'нот')}`;
+    : `${n} ${plural(n, 'нота', 'ноты', 'нот')}`;
 }
 
 /** Экран выбора мелодии: плитки вместо выпадающего меню. */

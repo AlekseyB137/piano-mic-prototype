@@ -25,6 +25,9 @@ const LS_SONG = 'pianoMic.song';
 const LS_BEST = 'pianoMic.best';
 const LS_PLAY_MODE = 'pianoMic.playMode';
 const LS_LATENCY = 'pianoMic.latency';
+const LS_TEMPO = 'pianoMic.tempo';
+/** Доступные множители темпа. */
+const TEMPOS = [0.5, 0.6, 0.7, 0.8, 0.9, 1];
 function load<T>(key: string, fallback: T): T {
   try {
     const v = localStorage.getItem(key);
@@ -59,7 +62,9 @@ let songIdx = Math.max(0, SONGS.findIndex((s) => s.id === load(LS_SONG, { id: SO
 let playMode: PlayMode = load<{ m: PlayMode }>(LS_PLAY_MODE, { m: 'tempo' }).m;
 /** Поправка ритма на задержку цепочки, мс (подстраивается кнопкой на экране «Готово!»). */
 let latencyMs = load<{ ms: number }>(LS_LATENCY, { ms: DEFAULT_WINDOW.latencySec * 1000 }).ms;
-const makePlayer = () => new SongPlayer(SONGS[songIdx], playMode, 4, { ...DEFAULT_WINDOW, latencySec: latencyMs / 1000 });
+let tempoFactor = load<{ f: number }>(LS_TEMPO, { f: 1 }).f;
+if (!TEMPOS.includes(tempoFactor)) tempoFactor = 1;
+const makePlayer = () => new SongPlayer(SONGS[songIdx], playMode, 4, { ...DEFAULT_WINDOW, latencySec: latencyMs / 1000 }, tempoFactor);
 let player = makePlayer();
 /** Аудиовремя = время анализатора + clockOffset (из событий 'clock' worklet'а). */
 let clockOffset: number | null = null;
@@ -260,7 +265,7 @@ function sendExpected(force = false): void {
   const midis = currentExpected();
   // Палец текущей ноты — на клавише (под нотой на линии место занято клавиатурой)
   const cur = mode === 'song' && !picker.visible ? player.current : null;
-  keyboard.setFingers(new Map(cur ? cur.notes.map((n) => [n.pitch, n.finger]) : []));
+  keyboard.setFingers(new Map(cur ? cur.notes.map((n) => [n.pitch, { finger: n.finger, left: n.hand === 'L' }]) : []));
   const key = `${mode}:${midis.join(',')}`;
   if (!force && key === lastSentExpected) return;
   lastSentExpected = key;
@@ -312,6 +317,7 @@ picker.onPick = (i) => {
   songIdx = i;
   save(LS_SONG, { id: SONGS[songIdx].id });
   newPlayer();
+  showTempo();
   picker.hide();
   songDone.classList.add('hidden');
   const r = songKeyRange();
@@ -353,6 +359,24 @@ playModeButtons.forEach((b) =>
 );
 showPlayMode();
 
+// Темп: − / +
+const tempoLabel = $('#song-tempo-label');
+function showTempo(): void {
+  tempoLabel.textContent = `${Math.round(tempoFactor * 100)}%`;
+  tempoLabel.title = `♩ = ${Math.round(SONGS[songIdx].bpm * tempoFactor)}`;
+}
+document.querySelectorAll<HTMLButtonElement>('#song-tempo button[data-tempo]').forEach((b) =>
+  b.addEventListener('click', () => {
+    const i = TEMPOS.indexOf(tempoFactor) + Number(b.dataset.tempo);
+    if (i < 0 || i >= TEMPOS.length) return;
+    tempoFactor = TEMPOS[i];
+    save(LS_TEMPO, { f: tempoFactor });
+    showTempo();
+    restartSong();
+  }),
+);
+showTempo();
+
 function fmtTime(sec: number): string {
   const s = Math.round(sec);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -388,7 +412,7 @@ function showSongDone(): void {
   const stats = document.createElement('div');
   stats.textContent =
     playMode === 'tempo'
-      ? `Вовремя: ${player.hits} из ${total} · рано: ${player.earlies} · поздно: ${player.lates} · ошибок: ${player.mistakes}${timingSummary()}`
+      ? `Вовремя: ${player.hits} из ${total} · рано: ${player.earlies} · поздно: ${player.lates} · ошибок: ${player.mistakes}${timingSummary()} · темп ${Math.round(tempoFactor * 100)}%`
       : `Нот/аккордов: ${total} · ошибок: ${player.mistakes} · время: ${fmtTime(player.elapsedSec)}`;
   const again = document.createElement('button');
   again.className = 'primary';

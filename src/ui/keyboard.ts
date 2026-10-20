@@ -84,7 +84,7 @@ export class Keyboard {
   }
 
   /** Номера пальцев на клавишах (Synthesia-стиль): только для указанных нот, остальные очищаются. */
-  setFingers(fingers: Map<number, number>): void {
+  setFingers(fingers: Map<number, { finger: number; left: boolean }>): void {
     for (const [m, k] of this.keys) {
       let b = k.querySelector<HTMLElement>('.finger');
       const f = fingers.get(m);
@@ -97,7 +97,8 @@ export class Keyboard {
         b.className = 'finger';
         k.prepend(b);
       }
-      b.textContent = String(f);
+      b.textContent = String(f.finger);
+      b.classList.toggle('l', f.left);
     }
   }
 

@@ -302,3 +302,7 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
 #app.song-playing .song-hud > .seg { display: none; }
 
 .key.early { background: var(--warn) !important; color: #2a2205; }
+
+.tempo-label { min-width: 52px; opacity: 1 !important; }
+
+.key .finger.l { background: var(--note-l); }

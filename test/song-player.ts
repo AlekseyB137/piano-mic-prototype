@@ -116,6 +116,12 @@ const song: Song = {
   expect('В такт: ровная игра после опоздания — «поздно» только один раз', js.filter((j) => j === 'late').length === 1 && js.slice(1).every((j) => j === 'hit'), js.join(' '));
 }
 
+{
+  const p = new SongPlayer(song, 'tempo', 2, { earlySec: 0.18, lateSec: 0.18, latencySec: 0 }, 0.5);
+  p.tick(0);
+  expect('Темп 50%: доля длится 2 с, первая нота через 4 с', p.bpm === 30 && p.stepTime(p.current!) === 4);
+}
+
 for (const s of SONGS) {
   const bad = s.notes.filter((n) => !(n.finger >= 1 && n.finger <= 5) || !(n.dur > 0) || (n.hand !== 'L' && n.hand !== 'R'));
   const overlapsInStep = new SongPlayer(s).steps.some((st) => new Set(st.notes.map((n) => n.pitch)).size !== st.notes.length);

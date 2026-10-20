@@ -83,6 +83,8 @@ export class SongPlayer {
     readonly mode: PlayMode = 'wait',
     readonly leadInBeats = 4,
     readonly window: TempoWindow = DEFAULT_WINDOW,
+    /** Множитель темпа (0.5–1): учиться можно медленнее, чем записано в песне. */
+    readonly tempoFactor = 1,
   ) {
     const byStart = new Map<number, SongNote[]>();
     for (const n of [...song.notes].sort((a, b) => a.start - b.start)) {
@@ -113,8 +115,13 @@ export class SongPlayer {
     return this.idx >= this.steps.length;
   }
 
+  /** Темп игры с учётом множителя. */
+  get bpm(): number {
+    return this.song.bpm * this.tempoFactor;
+  }
+
   get secPerBeat(): number {
-    return 60 / this.song.bpm;
+    return 60 / this.bpm;
   }
 
   /** Ноты, которые сейчас нужно сыграть (для анализатора). */

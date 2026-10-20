@@ -250,6 +250,31 @@ for (const c of [
     checks.length ? checks.map((x) => (x.allPassed ? '✓' : '✗')).join(' ') : 'вердикта нет: ' + ev.filter((e) => e.type === 'dropped').map((e) => (e as { reason: string }).reason).join('; '));
 }
 
+// 3в. Twinkle двумя руками: каждая пара «мелодия + бас» из песни. Основной тон баса ослаблен
+// (микрофон iPhone). Обе ноты — ✓; только бас или только мелодия — ✗.
+{
+  const combos: [number, number][] = [[48, 60], [48, 67], [53, 69], [48, 65], [53, 65], [48, 64], [55, 62], [55, 67]];
+  const bad: string[] = [];
+  for (const [lo, hi] of combos) {
+    for (const [what, play, want] of [
+      ['обе', [lo, hi], true],
+      ['только бас', [lo], false],
+      ['только мелодия', [hi], false],
+    ] as const) {
+      const sig = render(1.2, []);
+      play.forEach((m, j) => strike(sig, 0.2 + j * 0.01, m, 0.2, 1.2, 600 + m + j, m < 60 ? 0.25 : undefined));
+      const ev = run(sig, (a) => a.setExpected([lo, hi]));
+      const c = ev.filter((e): e is CheckEvent => e.type === 'check')[0];
+      const got = c ? c.allPassed : null;
+      if (got !== want) {
+        const why = c ? c.notes.map((n) => `${midiToName(n.midi)}:${n.passed ? 'ok' : n.evidence?.verdict}`).join(',') : 'нет вердикта';
+        bad.push(`${midiToName(lo)}+${midiToName(hi)} ${what} → ${got === null ? '—' : got ? '✓' : '✗'} (${why})`);
+      }
+    }
+  }
+  expect('Twinkle двумя руками: 8 пар × (обе / только бас / только мелодия)', bad.length === 0, bad.join('; '));
+}
+
 // 4. Затухающая нота не засчитывается повторно; новый удар той же ноты — засчитывается
 {
   const ev = run(render(2.5, [{ at: 0.2, midis: [60] }, { at: 1.4, midis: [60] }]), (a) => a.setExpected([60]));
