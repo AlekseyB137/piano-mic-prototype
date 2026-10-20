@@ -13,6 +13,8 @@ import { FallingNotes } from './ui/falling-notes';
 import { DEFAULT_WINDOW, SongPlayer, type PlayMode } from './song/player';
 import { SONGS } from './songs';
 import { SongPicker, type BestResult } from './ui/song-picker';
+import { importScoreFile } from './import/musicxml';
+import type { Song } from './song/types';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
@@ -26,6 +28,7 @@ const LS_BEST = 'pianoMic.best';
 const LS_PLAY_MODE = 'pianoMic.playMode';
 const LS_LATENCY = 'pianoMic.latency';
 const LS_TEMPO = 'pianoMic.tempo';
+const LS_USER_SONGS = 'pianoMic.userSongs';
 /** Доступные множители темпа. */
 const TEMPOS = [0.5, 0.75, 1];
 function load<T>(key: string, fallback: T): T {
@@ -58,13 +61,24 @@ let lastCheckLatency: number | null = null;
 let ctxState = '—';
 let ignoredAttacks = 0;
 // Режим «Песня»
-let songIdx = Math.max(0, SONGS.findIndex((s) => s.id === load(LS_SONG, { id: SONGS[0].id }).id));
+/** Свои ноты пользователя — только в localStorage этого телефона, никуда не отправляются. */
+let userSongs: (Song & { user: true })[] = (() => {
+  try {
+    const v = localStorage.getItem(LS_USER_SONGS);
+    const arr = v ? (JSON.parse(v) as Song[]) : [];
+    return Array.isArray(arr) ? arr.filter((s) => s && Array.isArray(s.notes)).map((s) => ({ ...s, user: true as const })) : [];
+  } catch {
+    return [];
+  }
+})();
+const allSongs = (): (Song & { user?: boolean })[] => [...SONGS, ...userSongs];
+let songIdx = Math.max(0, allSongs().findIndex((s) => s.id === load(LS_SONG, { id: SONGS[0].id }).id));
 let playMode: PlayMode = load<{ m: PlayMode }>(LS_PLAY_MODE, { m: 'tempo' }).m;
 /** Поправка ритма на задержку цепочки, мс (подстраивается кнопкой на экране «Готово!»). */
 let latencyMs = load<{ ms: number }>(LS_LATENCY, { ms: DEFAULT_WINDOW.latencySec * 1000 }).ms;
 let tempoFactor = load<{ f: number }>(LS_TEMPO, { f: 1 }).f;
 if (!TEMPOS.includes(tempoFactor)) tempoFactor = 1;
-const makePlayer = () => new SongPlayer(SONGS[songIdx], playMode, 4, { ...DEFAULT_WINDOW, latencySec: latencyMs / 1000 }, tempoFactor);
+const makePlayer = () => new SongPlayer(allSongs()[songIdx] ?? SONGS[0], playMode, 4, { ...DEFAULT_WINDOW, latencySec: latencyMs / 1000 }, tempoFactor);
 let player = makePlayer();
 /** Аудиовремя = время анализатора + clockOffset (из событий 'clock' worklet'а). */
 let clockOffset: number | null = null;
@@ -95,7 +109,7 @@ songCanvas.addEventListener('pointerdown', () => {
   hudRevealUntil = performance.now() + 4000;
 });
 const bestResults = load<Record<string, BestResult>>(LS_BEST, {});
-const picker = new SongPicker($('#song-picker'), SONGS, (id) => bestResults[`${id}:${playMode}`] ?? null);
+const picker = new SongPicker($('#song-picker'), allSongs, (id) => bestResults[`${id}:${playMode}`] ?? null);
 const message = $('#message');
 
 const tgEnv: TelegramEnv = initTelegram((m) => log.add(m, 'info'));
@@ -315,7 +329,7 @@ function newPlayer(): void {
 
 picker.onPick = (i) => {
   songIdx = i;
-  save(LS_SONG, { id: SONGS[songIdx].id });
+  save(LS_SONG, { id: allSongs()[songIdx].id });
   newPlayer();
   showTempo();
   picker.hide();
@@ -326,7 +340,49 @@ picker.onPick = (i) => {
   sendExpected();
   updateSongStatus();
 };
+function saveUserSongs(): boolean {
+  try {
+    localStorage.setItem(LS_USER_SONGS, JSON.stringify(userSongs.map(({ user: _u, ...s }) => s)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+picker.onImport = async (file) => {
+  try {
+    const { song, warnings } = await importScoreFile(file.name, await file.arrayBuffer(), (s) =>
+      new DOMParser().parseFromString(s, 'application/xml'),
+    );
+    const cur = allSongs()[songIdx]?.id;
+    userSongs = [...userSongs.filter((s) => s.id !== song.id), { ...song, user: true }];
+    const saved = saveUserSongs();
+    songIdx = Math.max(0, allSongs().findIndex((s) => s.id === cur));
+    const lines = [`Загружено: «${song.title}», ${song.notes.length} нот, ♩ = ${song.bpm}.`];
+    for (const w of warnings) lines.push(`⚠ ${w}`);
+    if (!saved) lines.push('⚠ Не хватило места для сохранения — мелодия доступна до закрытия приложения.');
+    picker.setNote(lines.join('\n'), 'info');
+    log.add(`Свои ноты: «${song.title}», ${song.notes.length} нот${warnings.length ? `; ${warnings.join('; ')}` : ''}`);
+  } catch (e) {
+    picker.setNote(`Не удалось загрузить «${file.name}»: ${e instanceof Error ? e.message : String(e)}`, 'error');
+  }
+  picker.show(songIdx);
+};
+
+picker.onDelete = (id) => {
+  const s = userSongs.find((u) => u.id === id);
+  if (!s || !window.confirm(`Удалить «${s.title}» с этого телефона?`)) return;
+  const cur = allSongs()[songIdx]?.id;
+  userSongs = userSongs.filter((u) => u.id !== id);
+  saveUserSongs();
+  songIdx = Math.max(0, allSongs().findIndex((x) => x.id === cur));
+  if (cur === id) newPlayer();
+  picker.setNote(`Удалено: «${s.title}».`);
+  picker.show(songIdx);
+};
+
 function chooseSong(): void {
+  picker.setNote('');
   songDone.classList.add('hidden');
   picker.show(songIdx);
   sendExpected();
@@ -365,7 +421,7 @@ function showTempo(): void {
   tempoButtons.forEach((b) => {
     const f = Number(b.dataset.tempo);
     b.classList.toggle('active', f === tempoFactor);
-    b.title = `♩ = ${Math.round(SONGS[songIdx].bpm * f)}`;
+    b.title = `♩ = ${Math.round((allSongs()[songIdx] ?? SONGS[0]).bpm * f)}`;
   });
 }
 tempoButtons.forEach((b) =>
@@ -423,7 +479,7 @@ function showSongDone(): void {
   row.className = 'row';
   row.append(again, choose);
   // Лучший результат: «В такт» — больше вовремя, потом меньше ошибок; «Ожидание» — меньше ошибок, потом быстрее
-  const id = `${SONGS[songIdx].id}:${playMode}`;
+  const id = `${player.song.id}:${playMode}`;
   const prev = bestResults[id];
   const cur: BestResult = { mistakes: player.mistakes, seconds: Math.round(player.elapsedSec), hits: player.hits, total };
   const isBest =

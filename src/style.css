@@ -302,3 +302,13 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
 
 
 .key .finger.l { background: var(--note-l); }
+
+/* Свои ноты */
+.tile { position: relative; }
+.tile.user { border-style: dashed; }
+.tile-mine { font-size: 11px; color: var(--note-r); }
+.tile-del { position: absolute; top: 6px; right: 8px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border-radius: 13px; color: var(--text-dim); background: var(--surface); }
+.tile-add { cursor: pointer; border-style: dashed; justify-content: center; }
+.tile-add .tile-name { color: var(--accent); }
+.picker-note { margin: 0 4px 10px; padding: 8px 12px; border-radius: 8px; font-size: 13px; white-space: pre-line; background: #1b2a3d; border: 1px solid var(--accent); }
+.picker-note.error { background: #3a1e22; border-color: var(--danger); }

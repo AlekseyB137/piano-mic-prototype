@@ -10,10 +10,13 @@
     "preview": "vite preview --host",
     "test:synth": "npx --yes tsx test/synth-bench.ts",
     "test:song": "npx --yes tsx test/song-player.ts",
-    "test:convert": "tools/.venv/bin/python tools/test_musicxml2json.py"
+    "test:convert": "tools/.venv/bin/python tools/test_musicxml2json.py",
+    "test:import": "npx --yes tsx test/import-musicxml.ts",
+    "test": "npm run test:song && npm run test:import && npm run test:synth && npm run test:convert"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "@xmldom/xmldom": "^0.8.10",
     "typescript": "^7.0.2",
     "vite": "^8.3.4"
   }
