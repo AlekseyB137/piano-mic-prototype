@@ -3,8 +3,13 @@ import type { KeyGeometry } from './keyboard';
 
 /** Сколько долей видно над линией удара. */
 const LOOKAHEAD_BEATS = 4;
-/** Зазор между соседними нотами по вертикали, px — чтобы повторы одной ноты читались раздельно. */
-const NOTE_GAP = 3;
+/**
+ * Зазор между нотами по вертикали (как в Synthesia), доля доли; в нём под каждой нотой — номер пальца.
+ * Нижний край ноты по-прежнему приходит к линии ровно в свою долю — укорачивается верх.
+ */
+const GAP_BEATS = 0.28;
+const GAP_MIN_PX = 16;
+const GAP_MAX_PX = 26;
 /** Длительность анимации «нота уходит в клавишу», с. */
 const SINK_SEC = 0.32;
 
@@ -76,12 +81,13 @@ export class FallingNotes {
 
     const ppb = H / LOOKAHEAD_BEATS; // пикселей на долю
     const hitY = H - 2;
+    const gap = Math.max(GAP_MIN_PX, Math.min(GAP_MAX_PX, ppb * GAP_BEATS));
 
     // Сетка долей — помогает почувствовать ритм
     g.strokeStyle = css('--border', '#2c313c');
     g.lineWidth = 1;
-    for (let b = Math.ceil(player.beat); b < player.beat + LOOKAHEAD_BEATS + 1; b++) {
-      const y = hitY - (b - player.beat) * ppb;
+    for (let b = Math.ceil(player.displayBeat); b < player.displayBeat + LOOKAHEAD_BEATS + 1; b++) {
+      const y = hitY - (b - player.displayBeat) * ppb;
       g.globalAlpha = b % 4 === 0 ? 0.9 : 0.35;
       g.beginPath();
       g.moveTo(0, y);
@@ -107,8 +113,8 @@ export class FallingNotes {
       for (const n of step.notes) {
         const geo = this.geometry(n.pitch);
         if (!geo) continue;
-        const bottom = hitY - (n.start - player.beat) * ppb;
-        const top = bottom - n.dur * ppb + NOTE_GAP;
+        const bottom = hitY - (n.start - player.displayBeat) * ppb;
+        const top = bottom - n.dur * ppb + gap;
         if (sinkP < 0 && (bottom < -4 || top > H)) continue;
         const pad = geo.w * W * (geo.black ? 0.04 : 0.1);
         const x = geo.x * W + pad;
@@ -152,25 +158,24 @@ export class FallingNotes {
         }
         g.globalAlpha = alpha;
 
-        // Подписи: буква звука (без октавы), под ней — палец
+        // На ноте — буква звука (без октавы)
         const h = yBot - yTop;
-        if (h > 14 && w > 14) {
+        const cx = x + w / 2;
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        if (h > 12 && w > 12) {
           g.fillStyle = colText;
-          g.textAlign = 'center';
-          g.textBaseline = 'middle';
-          const cx = x + w / 2;
-          const letter = n.name.replace(/-?\d+$/, '');
-          const fs = Math.min(22, w * 0.55, h * 0.45);
-          if (h > fs + 18) {
-            g.font = `800 ${fs}px -apple-system, system-ui, sans-serif`;
-            g.fillText(letter, cx, yBot - h / 2 - 6);
-            g.font = `600 ${Math.min(12, w * 0.3)}px -apple-system, system-ui, sans-serif`;
-            g.fillText(String(n.finger), cx, yBot - 10);
-          } else {
-            const fs1 = Math.min(14, h * 0.6, w * 0.3);
-            g.font = `800 ${fs1}px -apple-system, system-ui, sans-serif`;
-            g.fillText(`${letter} ${n.finger}`, cx, yBot - h / 2);
-          }
+          g.font = `800 ${Math.min(22, w * 0.55, h * 0.6)}px -apple-system, system-ui, sans-serif`;
+          g.fillText(n.name.replace(/-?\d+$/, ''), cx, yTop + h / 2);
+        }
+        // Под нотой, в зазоре, — номер пальца (у ноты на линии место занято клавиатурой:
+        // её палец показывает сама клавиша)
+        const fy = bottom + gap / 2;
+        if (sinkP < 0 && fy + 7 < hitY && fy > 0) {
+          g.globalAlpha = 1;
+          g.fillStyle = fill;
+          g.font = `800 ${Math.min(15, gap * 0.75)}px -apple-system, system-ui, sans-serif`;
+          g.fillText(String(n.finger), cx, fy);
         }
         g.globalAlpha = 1;
       }
@@ -181,9 +186,9 @@ export class FallingNotes {
     g.fillRect(0, hitY - 1, W, 3);
 
     // «В такт»: отсчёт вступления 4-3-2-1 (метроном звуком нельзя — его услышит микрофон)
-    if (mode === 'tempo' && player.beat < 0 && player.beat > -player.leadInBeats) {
-      const n = Math.ceil(-player.beat);
-      const frac = -player.beat - (n - 1); // 1 → 0 в течение доли
+    if (mode === 'tempo' && player.displayBeat < 0 && player.displayBeat > -player.leadInBeats) {
+      const n = Math.ceil(-player.displayBeat);
+      const frac = -player.displayBeat - (n - 1); // 1 → 0 в течение доли
       g.globalAlpha = 0.25 + 0.6 * frac;
       g.fillStyle = css('--text', '#e8eaef');
       g.textAlign = 'center';

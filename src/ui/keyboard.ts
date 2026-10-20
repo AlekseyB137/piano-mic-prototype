@@ -83,6 +83,24 @@ export class Keyboard {
     }
   }
 
+  /** Номера пальцев на клавишах (Synthesia-стиль): только для указанных нот, остальные очищаются. */
+  setFingers(fingers: Map<number, number>): void {
+    for (const [m, k] of this.keys) {
+      let b = k.querySelector<HTMLElement>('.finger');
+      const f = fingers.get(m);
+      if (f === undefined) {
+        b?.remove();
+        continue;
+      }
+      if (!b) {
+        b = document.createElement('span');
+        b.className = 'finger';
+        k.prepend(b);
+      }
+      b.textContent = String(f);
+    }
+  }
+
   mark(midi: number, mark: KeyMark, on = true): void {
     this.keys.get(midi)?.classList.toggle(mark, on);
   }

@@ -51,6 +51,11 @@ export class SongPlayer {
   readonly steps: Step[];
   /** Позиция линии удара, доли. До начала — отрицательная (вступление). */
   beat: number;
+  /**
+   * Позиция для отрисовки. Обычно = beat; когда «В такт» встал в ожидание (окно прошло и нота
+   * уже ушла за линию), плавно возвращается к доле шага — ожидаемая нота видна на линии целиком.
+   */
+  displayBeat: number;
   waiting = false;
   hits = 0;
   mistakes = 0;
@@ -89,6 +94,7 @@ export class SongPlayer {
       late: false,
     }));
     this.beat = -leadInBeats;
+    this.displayBeat = this.beat;
     this.markCurrent();
   }
 
@@ -121,7 +127,7 @@ export class SongPlayer {
     const next = this.beat + dt / this.secPerBeat;
     const cur = this.current;
     if (!cur) {
-      this.beat = next; // песня сыграна — ноты уезжают вниз
+      this.beat = this.displayBeat = next; // песня сыграна — ноты уезжают вниз
       return;
     }
     this.elapsedSec += dt;
@@ -132,6 +138,7 @@ export class SongPlayer {
       this.beat = next;
       this.waiting = false;
     }
+    this.displayBeat = this.beat;
   }
 
   /** «В такт»: выставить позицию по аудиочасам; если окно текущего шага прошло — встать и ждать. */
@@ -149,6 +156,9 @@ export class SongPlayer {
       }
     }
     this.waiting = this.pausedAt !== null;
+    const cur = this.current;
+    this.displayBeat =
+      this.pausedAt !== null && cur ? cur.start + (this.beat - cur.start) * Math.exp(-(now - this.pausedAt) / 0.06) : this.beat;
     if (this.finished && this.endTime === null) this.endTime = now;
     const pause = this.pausedAt !== null ? now - this.pausedAt : 0;
     this.elapsedSec = Math.max(0, (this.endTime ?? now) - pause - this.startTime - this.leadInBeats * this.secPerBeat);
@@ -226,7 +236,7 @@ export class SongPlayer {
       s.late = false;
     }
     this.idx = 0;
-    this.beat = -this.leadInBeats;
+    this.beat = this.displayBeat = -this.leadInBeats;
     this.waiting = false;
     this.hits = this.mistakes = this.lates = 0;
     this.elapsedSec = 0;

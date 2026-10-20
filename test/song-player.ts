@@ -64,6 +64,7 @@ const song: Song = {
   expect('В такт: окно прошло — игра стоит и ждёт D4', p.waiting && p.expected().join() === '62' && Math.abs(p.beat - 1.18) < 1e-9, `beat=${p.beat}`);
   p.tick(105);
   expect('В такт: ждёт сколько угодно, позиция не двигается', p.waiting && Math.abs(p.beat - 1.18) < 1e-9);
+  expect('В такт: на экране ожидаемая нота вернулась на линию', Math.abs(p.displayBeat - 1) < 1e-6, `display=${p.displayBeat}`);
   expect('В такт: D4 после остановки — «поздно», песня пошла', p.judge(true, 105.0, 105.1) === 'late' && p.lates === 1 && p.hits === 1 && !p.waiting && p.expected().join() === '48,52');
   p.tick(105.1);
   // Ритм от удара: D4 (доля 1) сыграна в 105.0 → аккорд (доля 2) ждём ровно через 1 долю, в 106.0

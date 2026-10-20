@@ -84,6 +84,11 @@ const songCanvas = $<HTMLCanvasElement>('#song-canvas');
 const songStatus = $('#song-status');
 const songDone = $('#song-done');
 const falling = new FallingNotes(songCanvas, (m) => keyboard.keyGeometry(m));
+/** До этого момента (performance.now) кнопки над нотами показаны и во время игры. */
+let hudRevealUntil = 0;
+songCanvas.addEventListener('pointerdown', () => {
+  hudRevealUntil = performance.now() + 4000;
+});
 const bestResults = load<Record<string, BestResult>>(LS_BEST, {});
 const picker = new SongPicker($('#song-picker'), SONGS, (id) => bestResults[`${id}:${playMode}`] ?? null);
 const message = $('#message');
@@ -253,6 +258,9 @@ function currentExpected(): number[] {
 /** Отправить ожидаемые ноты анализатору; force — даже если не изменились (после Старт). */
 function sendExpected(force = false): void {
   const midis = currentExpected();
+  // Палец текущей ноты — на клавише (под нотой на линии место занято клавиатурой)
+  const cur = mode === 'song' && !picker.visible ? player.current : null;
+  keyboard.setFingers(new Map(cur ? cur.notes.map((n) => [n.pitch, n.finger]) : []));
   const key = `${mode}:${midis.join(',')}`;
   if (!force && key === lastSentExpected) return;
   lastSentExpected = key;
@@ -721,7 +729,11 @@ function render(): void {
     falling.draw(player, t ?? performance.now() / 1000, playMode);
   }
   // Экраны выбора и «Готово!» — клавиатура не нужна и закрывает кнопки
-  appEl.classList.toggle('song-overlay', mode === 'song' && (picker.visible || !songDone.classList.contains('hidden')));
+  const overlay = mode === 'song' && (picker.visible || !songDone.classList.contains('hidden'));
+  appEl.classList.toggle('song-overlay', overlay);
+  // Во время игры кнопки над нотами скрыты; касание поля показывает их на 4 с
+  const playing = mode === 'song' && !overlay && capture.running && !player.finished;
+  appEl.classList.toggle('song-playing', playing && performance.now() > hudRevealUntil);
   const f = latestFrame;
   if (f && f !== drawnFrame) {
     drawnFrame = f;
