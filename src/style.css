@@ -247,7 +247,6 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
   pointer-events: none;
 }
 .song-hud > * { pointer-events: auto; }
-.song-hud select { font: inherit; font-size: 13px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 4px 6px; max-width: 46vw; }
 .song-status { font-size: 13px; color: var(--text-dim); text-shadow: 0 1px 2px #000; }
 .song-status b { color: var(--text); }
 .song-done {
@@ -257,3 +256,22 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
   font-size: 16px;
 }
 .song-done strong { font-size: 24px; }
+
+.song-done .row { display: flex; gap: 10px; }
+.song-picker {
+  position: absolute; inset: 0; overflow-y: auto; z-index: 3;
+  padding: 10px 2px; background: var(--bg);
+  -webkit-overflow-scrolling: touch;
+}
+.picker-title { font-size: 18px; font-weight: 700; margin: 0 4px 10px; }
+.picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.tile {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left;
+  min-height: 92px; padding: 12px 14px; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--border);
+}
+.tile.current { border-color: var(--accent); }
+.tile:active { background: var(--surface); }
+.tile-name { font-size: 16px; font-weight: 700; color: var(--text); }
+.tile-meta { font-size: 12px; color: var(--text-dim); }
+.tile-best { font-size: 12px; color: var(--success); margin-top: auto; }

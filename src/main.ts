@@ -12,6 +12,7 @@ import { EventLog } from './ui/event-log';
 import { FallingNotes } from './ui/falling-notes';
 import { SongPlayer } from './song/player';
 import { SONGS } from './songs';
+import { SongPicker, type BestResult } from './ui/song-picker';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
@@ -21,6 +22,7 @@ const LS_PARAMS = 'pianoMic.params';
 const PARAMS_VERSION = 5;
 const LS_FFT = 'pianoMic.fft';
 const LS_SONG = 'pianoMic.song';
+const LS_BEST = 'pianoMic.best';
 function load<T>(key: string, fallback: T): T {
   try {
     const v = localStorage.getItem(key);
@@ -70,10 +72,11 @@ const btnDebug = $<HTMLButtonElement>('#btn-debug');
 const statusDot = $('#status-dot');
 const appEl = $('#app');
 const songCanvas = $<HTMLCanvasElement>('#song-canvas');
-const songSelect = $<HTMLSelectElement>('#song-select');
 const songStatus = $('#song-status');
 const songDone = $('#song-done');
 const falling = new FallingNotes(songCanvas, (m) => keyboard.keyGeometry(m));
+const bestResults = load<Record<string, BestResult>>(LS_BEST, {});
+const picker = new SongPicker($('#song-picker'), SONGS, (id) => bestResults[id] ?? null);
 const message = $('#message');
 
 const tgEnv: TelegramEnv = initTelegram((m) => log.add(m, 'info'));
@@ -233,7 +236,7 @@ debug.onCopy = async () => {
 // --- Режимы и ожидаемые ноты ---
 function currentExpected(): number[] {
   if (mode === 'check') return [...expected].sort((a, b) => a - b);
-  if (mode === 'song') return player.expected();
+  if (mode === 'song') return picker.visible ? [] : player.expected();
   return [];
 }
 
@@ -269,26 +272,37 @@ function setMode(m: Mode): void {
   if (m === 'song') {
     const r = songKeyRange();
     keyboard.setRange(r.low, r.high);
-  } else keyboard.setRange(KEY_LOW, KEY_HIGH);
+    // Пока песня не начата — сразу экран выбора
+    if (player.hits === 0 && player.mistakes === 0) picker.show(songIdx);
+  } else {
+    keyboard.setRange(KEY_LOW, KEY_HIGH);
+    picker.hide();
+  }
   lastAudioT = null;
   sendExpected();
   updateSongStatus();
 }
 
 // --- Песня ---
-SONGS.forEach((s, i) => {
-  const o = document.createElement('option');
-  o.value = String(i);
-  o.textContent = s.title;
-  songSelect.appendChild(o);
-});
-songSelect.value = String(songIdx);
-songSelect.addEventListener('change', () => {
-  songIdx = Number(songSelect.value);
+picker.onPick = (i) => {
+  songIdx = i;
   save(LS_SONG, { id: SONGS[songIdx].id });
   player = new SongPlayer(SONGS[songIdx]);
-  setMode('song');
-});
+  picker.hide();
+  songDone.classList.add('hidden');
+  const r = songKeyRange();
+  keyboard.setRange(r.low, r.high);
+  lastAudioT = null;
+  sendExpected();
+  updateSongStatus();
+};
+function chooseSong(): void {
+  songDone.classList.add('hidden');
+  picker.show(songIdx);
+  sendExpected();
+  updateSongStatus();
+}
+$('#song-choose').addEventListener('click', chooseSong);
 function restartSong(): void {
   player.restart();
   songDone.classList.add('hidden');
@@ -307,7 +321,8 @@ function updateSongStatus(): void {
   if (mode !== 'song') return;
   const cur = player.current;
   let text: string;
-  if (!capture.running) text = 'Нажмите «Старт», затем «Тишина 2 с»';
+  if (picker.visible) text = '';
+  else if (!capture.running) text = 'Нажмите «Старт», затем «Тишина 2 с»';
   else if (!cur) text = 'Готово!';
   else {
     const what = cur.notes.map((n) => `${n.name} ${n.hand === 'L' ? 'Л' : 'П'}${n.finger}`).join(' + ');
@@ -327,7 +342,25 @@ function showSongDone(): void {
   again.className = 'primary';
   again.textContent = 'Ещё раз';
   again.addEventListener('click', restartSong);
-  songDone.append(title, stats, again);
+  const choose = document.createElement('button');
+  choose.textContent = 'Выбор мелодии';
+  choose.addEventListener('click', chooseSong);
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.append(again, choose);
+  // Лучший результат — меньше ошибок, при равенстве быстрее
+  const id = SONGS[songIdx].id;
+  const prev = bestResults[id];
+  const cur = { mistakes: player.mistakes, seconds: Math.round(player.elapsedSec) };
+  const isBest = !prev || cur.mistakes < prev.mistakes || (cur.mistakes === prev.mistakes && cur.seconds < prev.seconds);
+  if (isBest) {
+    bestResults[id] = cur;
+    save(LS_BEST, bestResults);
+  }
+  const best = document.createElement('div');
+  best.className = 'tile-best';
+  best.textContent = isBest && prev ? 'Новый лучший результат!' : '';
+  songDone.append(title, stats, best, row);
   songDone.classList.remove('hidden');
 }
 
@@ -558,7 +591,7 @@ btnCalib.addEventListener('click', () => {
 // --- Отрисовка (rAF, только последний кадр) ---
 let drawnFrame: FrameEvent | null = null;
 function render(): void {
-  if (mode === 'song') {
+  if (mode === 'song' && !picker.visible) {
     // Единственный источник времени — AudioContext.currentTime; без звука песня стоит
     const ctx = capture.ctx;
     const t = ctx && ctx.state === 'running' ? ctx.currentTime : null;
