@@ -59,9 +59,50 @@ for (const f of ['twinkle-2h.musicxml', 'twinkle-2h.mxl']) {
   expect('Название — из имени файла', song.title === 'mini', song.title);
 }
 
+// MIDI: Twinkle двумя руками (music21, формат 1: дорожка темпа + две руки)
+{
+  const { song, warnings } = await importScoreFile('twinkle-2h.mid', fx('twinkle-2h.mid'), parse);
+  const k = (n: Song['notes'][number]) => `${n.start}|${n.pitch}|${n.dur}|${n.hand}`;
+  const w = src.notes.map(k).sort();
+  const g = song.notes.map(k).sort();
+  expect('MIDI: все 66 нот совпали (начало, высота, длительность, рука)', JSON.stringify(w) === JSON.stringify(g), `${g.length} нот; нет: ${w.filter((x) => !g.includes(x)).slice(0, 3)}`);
+  expect('MIDI: темп 80', song.bpm === 80, String(song.bpm));
+  expect('MIDI: пальцы расставлены, предупреждение про аппликатуру', song.notes.every((n) => n.finger >= 1 && n.finger <= 5) && warnings.some((x) => x.includes('аппликатуры')), warnings.join('; '));
+}
+
+// MIDI: одна дорожка, running status, аккорд с разбросом 5 тиков, руки по высоте
+{
+  const vlq = (v: number) => {
+    const out = [v & 0x7f];
+    while ((v >>= 7)) out.unshift((v & 0x7f) | 0x80);
+    return out;
+  };
+  const ppq = 480;
+  const NAME = [...new TextEncoder().encode('Тест')];
+  const ev: number[] = [
+    ...vlq(0), 0xff, 0x51, 0x03, 0x07, 0xa1, 0x20, // 500000 мкс = 120 bpm
+    ...vlq(0), 0xff, 0x03, ...vlq(NAME.length), ...NAME, // имя дорожки (длина — в байтах UTF-8)
+    ...vlq(0), 0x90, 48, 80, // C3
+    ...vlq(5), 64, 80, // E4, running status, +5 тиков
+    ...vlq(ppq - 5), 48, 0, // C3 off (velocity 0)
+    ...vlq(0), 0x80, 64, 0, // E4 off
+    ...vlq(0), 0x99, 38, 100, ...vlq(0), 0x89, 38, 0, // ударные — пропустить
+    ...vlq(0), 0x90, 67, 90, ...vlq(ppq * 2), 0x80, 67, 0, // G4 половинная
+    ...vlq(0), 0xff, 0x2f, 0x00,
+  ];
+  const hdr = [0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, ppq >> 8, ppq & 0xff];
+  const trk = [0x4d, 0x54, 0x72, 0x6b, (ev.length >>> 24) & 0xff, (ev.length >>> 16) & 0xff, (ev.length >>> 8) & 0xff, ev.length & 0xff, ...ev];
+  const { song, warnings } = await importScoreFile('one.mid', new Uint8Array([...hdr, ...trk]).buffer, parse);
+  const s = song.notes.map((n) => `${n.name}${n.hand}@${n.start}/${n.dur}`).join(' ');
+  expect('MIDI одна дорожка: аккорд склеен, руки по высоте, ударные пропущены', s === 'C3L@0/1 E4R@0/1 G4R@1/2', s);
+  expect('MIDI одна дорожка: темп 120, название из дорожки', song.bpm === 120 && song.title === 'Тест', `${song.bpm} ${song.title}`);
+  expect('MIDI одна дорожка: предупреждение про разделение рук', warnings.some((w) => w.includes('по высоте')), warnings.join('; '));
+}
+
 for (const [name, data] of [
   ['не XML', 'просто текст'],
   ['не MusicXML', '<?xml version="1.0"?><html/>'],
+  ['PDF', '%PDF-1.7 ...'],
 ] as const) {
   let err = '';
   try {

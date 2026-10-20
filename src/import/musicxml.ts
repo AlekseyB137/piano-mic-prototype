@@ -1,5 +1,5 @@
 /**
- * Импорт своих нот: MusicXML (.musicxml/.xml или сжатый .mxl) → песня приложения.
+ * Импорт своих нот: MusicXML (.musicxml/.xml или сжатый .mxl) или MIDI (.mid) → песня приложения.
  * Без DOM-зависимостей кроме разбора XML (парсер передаётся снаружи), чтобы работало и в тестах.
  * Правила те же, что у tools/musicxml2json.py:
  *  - одна партия с двумя станами: верхний — правая рука, нижний — левая; две партии — первая правая,
@@ -11,11 +11,10 @@
  */
 import type { Song, SongNote } from '../song/types';
 import { midiToName } from '../audio/notes';
+import { parseMidi } from './midi';
+import { autoFingering, hashId, type ImportResult } from './common';
 
-export interface ImportResult {
-  song: Song;
-  warnings: string[];
-}
+export type { ImportResult } from './common';
 
 export type XmlParser = (text: string) => Document;
 
@@ -91,15 +90,6 @@ function all(el: Element, name: string): Element[] {
 }
 
 const STEP: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
-const WHITE = [0, 2, 4, 5, 7, 9, 11];
-
-function whiteIndex(m: number): number {
-  const oct = Math.floor(m / 12);
-  let pc = m % 12;
-  while (!WHITE.includes(pc)) pc--;
-  return oct * 7 + WHITE.indexOf(pc);
-}
-
 /* ---------------- Повторы ---------------- */
 
 interface MeasureMeta {
@@ -172,7 +162,7 @@ function playOrder(meta: MeasureMeta[]): number[] {
 /* ---------------- Разбор ---------------- */
 
 interface RawNote extends SongNote {
-  tieOpen: boolean;
+  tieOpen?: boolean;
   fingerAuto?: boolean;
 }
 
@@ -191,33 +181,6 @@ function readTempo(root: Element): number | null {
     return q;
   }
   return null;
-}
-
-/** Оценка пальцев по позиции руки — как в tools/musicxml2json.py. */
-function autoFingering(notes: RawNote[]): number {
-  let count = 0;
-  for (const hand of ['R', 'L'] as const) {
-    const seq = notes.filter((n) => n.hand === hand).sort((a, b) => a.start - b.start || a.pitch - b.pitch);
-    let anchor: number | null = null;
-    for (const n of seq) {
-      const w = whiteIndex(n.pitch);
-      if (anchor === null || w < anchor) anchor = w;
-      else if (w > anchor + 4) anchor = w - 4;
-      if (!(n.finger >= 1 && n.finger <= 5)) {
-        const rel = w - anchor;
-        n.finger = hand === 'R' ? rel + 1 : 5 - rel;
-        n.fingerAuto = true;
-        count++;
-      }
-    }
-  }
-  return count;
-}
-
-function hashId(s: string): string {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
-  return (h >>> 0).toString(36);
 }
 
 export function parseMusicXml(doc: Document, fallbackTitle: string): ImportResult {
@@ -338,6 +301,12 @@ export function parseMusicXml(doc: Document, fallbackTitle: string): ImportResul
 export async function importScoreFile(fileName: string, data: ArrayBuffer, parse: XmlParser): Promise<ImportResult> {
   const bytes = new Uint8Array(data);
   let xml: string;
+  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
+    throw new Error('PDF не поддерживается — нужен MusicXML (.mxl, .musicxml) или MIDI (.mid)'); // «%PDF»
+  }
+  if (bytes[0] === 0x4d && bytes[1] === 0x54 && bytes[2] === 0x68 && bytes[3] === 0x64) {
+    return parseMidi(bytes, fileName.replace(/\.(mid|midi|kar)$/i, '')); // «MThd»
+  }
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
     const files = await unzip(bytes);
     let rootPath: string | null = null;

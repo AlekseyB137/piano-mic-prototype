@@ -116,7 +116,7 @@ export class SongPicker {
     addName.textContent = '＋ Загрузить свои ноты';
     const addMeta = document.createElement('span');
     addMeta.className = 'tile-meta';
-    addMeta.textContent = 'MusicXML (.mxl, .musicxml) — экспорт из MuseScore и других редакторов. Хранится только на этом телефоне.';
+    addMeta.textContent = 'MusicXML (.mxl, .musicxml) или MIDI (.mid). Хранится только на этом телефоне.';
     const input = document.createElement('input');
     input.type = 'file'; // без accept: iOS иначе может не дать выбрать .mxl
     input.hidden = true;
