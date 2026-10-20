@@ -16,4 +16,6 @@ export interface Song {
   title: string;
   bpm: number;
   notes: SongNote[];
+  /** Порядок на экране выбора (меньше — раньше), по умолчанию 100. */
+  order?: number;
 }

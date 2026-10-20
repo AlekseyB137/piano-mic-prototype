@@ -3,8 +3,15 @@
  * Запуск: npm run test:song
  */
 import { SongPlayer } from '../src/song/player';
-import { SONGS } from '../src/songs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Song } from '../src/song/types';
+
+// Каталог в приложении собирает Vite (import.meta.glob); здесь читаем те же файлы напрямую
+const SONG_DIR = join(import.meta.dirname, '../src/songs');
+const SONGS: Song[] = readdirSync(SONG_DIR)
+  .filter((f) => f.endsWith('.json'))
+  .map((f) => JSON.parse(readFileSync(join(SONG_DIR, f), 'utf-8')) as Song);
 
 let pass = 0, fail = 0;
 function expect(name: string, ok: boolean, detail = '') {

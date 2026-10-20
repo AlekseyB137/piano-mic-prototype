@@ -9,7 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
     "test:synth": "npx --yes tsx test/synth-bench.ts",
-    "test:song": "npx --yes tsx test/song-player.ts"
+    "test:song": "npx --yes tsx test/song-player.ts",
+    "test:convert": "tools/.venv/bin/python tools/test_musicxml2json.py"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.3.0",

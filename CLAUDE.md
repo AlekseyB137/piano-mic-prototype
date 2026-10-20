@@ -40,6 +40,9 @@
   src/song/player.ts — логика без DOM (`npm run test:song`), src/ui/falling-notes.ts — canvas,
   песни в src/songs/*.json (формат ниже, start/dur в долях): Twinkle Twinkle Little Star (правая рука и
   двумя руками — бас C3/F3/G3 на каждые 2 доли), Ода к радости. Темп 50 / 75 / 100 % (решение пользователя). Время — только AudioContext.currentTime.
+- Конвертер MusicXML → JSON: tools/musicxml2json.py (music21 в tools/.venv, `npm run test:convert`).
+  Каталог песен собирается сам из src/songs/*.json (import.meta.glob, поле order). Автоаппликатура —
+  грубая (помечается fingerAuto); песни с ней в каталог не добавлять без ручной проверки пальцев.
 - Следующий шаг: тесты на реальном пианино в Telegram на iPhone и Android, разбор отчётов
   («Поделиться отчётом»), подстройка порогов. Найденные на живом звуке ошибки по возможности
   воспроизводить кейсом в стенде.
