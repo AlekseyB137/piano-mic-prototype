@@ -95,13 +95,10 @@ export class FallingNotes {
         let fill = n.hand === 'L' ? colL : colR;
         let alpha = 1;
         if (step.state === 'done') {
-          fill = colPass;
+          fill = step.late ? css('--warn', '#ffc94d') : colPass; // «поздно» — оранжевым
           alpha = 0.35;
-        } else if (step.state === 'missed') {
-          fill = colFail;
-          alpha = 0.45;
         }
-        const fl = step.state === 'current' || step.state === 'missed' ? this.flashes.get(n.pitch) : undefined;
+        const fl = step.state === 'current' ? this.flashes.get(n.pitch) : undefined;
         if (fl && fl.until > now) fill = fl.kind === 'fail' ? colFail : colPass;
 
         g.globalAlpha = alpha;

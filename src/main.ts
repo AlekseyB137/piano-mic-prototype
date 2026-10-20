@@ -10,7 +10,7 @@ import { Readout, VERDICT_TEXT, type Mode } from './ui/readout';
 import { DebugPanel } from './ui/debug-panel';
 import { EventLog } from './ui/event-log';
 import { FallingNotes } from './ui/falling-notes';
-import { SongPlayer, type PlayMode, type Step } from './song/player';
+import { SongPlayer, type PlayMode } from './song/player';
 import { SONGS } from './songs';
 import { SongPicker, type BestResult } from './ui/song-picker';
 
@@ -60,8 +60,6 @@ let player = new SongPlayer(SONGS[songIdx], playMode);
 /** Аудиовремя = время анализатора + clockOffset (из событий 'clock' worklet'а). */
 let clockOffset: number | null = null;
 let songDoneShown = false;
-/** Анализатор разбирает удар (checkStart без вердикта) — до этого аудиовремени не помечаем пропуск. */
-let checkPendingUntil = 0;
 let lastSentExpected = '';
 let lastAudioT: number | null = null;
 /** Отброшенные атаки — только для отчёта, в видимый лог не попадают. */
@@ -355,12 +353,21 @@ function updateSongStatus(): void {
   else if (!cur) text = 'Готово!';
   else {
     const what = cur.notes.map((n) => `${n.name} ${n.hand === 'L' ? 'Л' : 'П'}${n.finger}`).join(' + ');
-    const lead = playMode === 'tempo' ? (player.beat < 0 ? 'Приготовьтесь' : 'Играйте') : player.waiting ? 'Ждём' : 'Дальше';
+    const lead =
+      playMode === 'tempo'
+        ? player.beat < 0
+          ? 'Приготовьтесь'
+          : player.waiting
+            ? 'Опоздали — ждём'
+            : 'Играйте'
+        : player.waiting
+          ? 'Ждём'
+          : 'Дальше';
     text = `${lead}: <b>${what}</b>`;
   }
   let counters = ` · ✓ ${player.hits} · ✗ ${player.mistakes}`;
   if (playMode === 'tempo') {
-    counters += ` · пропущено ${player.misses}`;
+    counters += ` · поздно ${player.lates}`;
     const o = player.lastOffsetSec;
     if (o !== null) counters += ` · последняя ${o >= 0 ? '+' : '−'}${Math.abs(Math.round(o * 1000))} мс`;
   }
@@ -375,7 +382,7 @@ function showSongDone(): void {
   const stats = document.createElement('div');
   stats.textContent =
     playMode === 'tempo'
-      ? `Вовремя: ${player.hits} из ${total} · пропущено: ${player.misses} · ошибок: ${player.mistakes}${timingSummary()}`
+      ? `Вовремя: ${player.hits} из ${total} · поздно: ${player.lates} · ошибок: ${player.mistakes}${timingSummary()}`
       : `Нот/аккордов: ${total} · ошибок: ${player.mistakes} · время: ${fmtTime(player.elapsedSec)}`;
   const again = document.createElement('button');
   again.className = 'primary';
@@ -409,33 +416,24 @@ function showSongDone(): void {
 
 /** Среднее отклонение попаданий: помогает понять, не нужна ли поправка на задержку. */
 function timingSummary(): string {
-  const o = player.steps.map((s) => s.offsetSec).filter((x): x is number => x !== null);
+  const o = player.steps.filter((s) => !s.late).map((s) => s.offsetSec).filter((x): x is number => x !== null);
   if (!o.length) return '';
   const mean = (o.reduce((a, b) => a + b, 0) / o.length) * 1000;
   return ` · в среднем ${mean >= 0 ? '+' : '−'}${Math.abs(Math.round(mean))} мс`;
 }
 
-function onMissed(steps: Step[]): void {
-  if (!steps.length) return;
-  const now = capture.ctx?.currentTime ?? 0;
-  falling.flash(steps.flatMap((s) => s.notes.map((n) => n.pitch)), 'fail', now, 0.4);
-  log.add(`Пропущено: ${steps.map((s) => s.notes.map((n) => n.name).join('+')).join(', ')}`, 'fail');
-  sendExpected();
-  updateSongStatus();
-}
-
-const JUDGE_TEXT = { hit: 'вовремя', early: 'рано', late: 'поздно', wrong: 'не та нота', ignored: '' } as const;
+const JUDGE_TEXT = { hit: 'вовремя', early: 'рано', late: 'поздно (игра ждала)', wrong: 'не та нота', ignored: '' } as const;
 
 /** Вердикт анализатора в режиме «Песня». onsetTime — время атаки в часах анализатора. */
 function onSongCheck(allPassed: boolean, notes: { midi: number; passed: boolean }[], onsetTime: number): void {
   const now = capture.ctx?.currentTime ?? 0;
   if (playMode === 'tempo') {
     if (clockOffset === null) return; // часы ещё не привязаны — оценить ритм нельзя
-    const j = player.judge(allPassed, onsetTime + clockOffset);
+    const j = player.judge(allPassed, onsetTime + clockOffset, now);
     if (j === 'ignored') return;
     const off = player.lastOffsetSec;
     log.add(`В такт: ${JUDGE_TEXT[j]}${j === 'hit' && off !== null ? ` (${off >= 0 ? '+' : '−'}${Math.abs(Math.round(off * 1000))} мс)` : ''}`, j === 'hit' ? 'pass' : 'fail');
-    if (j === 'hit') {
+    if (j === 'hit' || j === 'late') {
       falling.flash(notes.map((n) => n.midi), 'pass', now, 0.25);
       sendExpected();
     } else {
@@ -529,7 +527,6 @@ function onEvent(ev: AnalyzerEvent): void {
       }
       break;
     case 'check': {
-      checkPendingUntil = 0;
       lastCheckLatency = ev.latencyMs;
       if (mode === 'song') onSongCheck(ev.allPassed, ev.notes, ev.onsetTime);
       else {
@@ -556,7 +553,6 @@ function onEvent(ev: AnalyzerEvent): void {
       clockOffset = ev.audioTime - ev.analyzerTime;
       break;
     case 'checkStart':
-      checkPendingUntil = (capture.ctx?.currentTime ?? 0) + 0.5;
       // Новый удар: прошлый результат больше не актуален, чтобы старая подсветка не путала
       keyboard.clear('pass');
       keyboard.clear('fail');
@@ -680,8 +676,9 @@ function render(): void {
     if (t !== null) {
       if (playMode === 'tempo') {
         const wasLeadIn = player.beat < 0;
-        onMissed(player.tick(t, t < checkPendingUntil));
-        if (wasLeadIn !== player.beat < 0) updateSongStatus();
+        const wasWaiting = player.waiting;
+        player.tick(t);
+        if (wasLeadIn !== player.beat < 0 || wasWaiting !== player.waiting) updateSongStatus();
       } else {
         const wasWaiting = player.waiting;
         if (lastAudioT !== null) player.advance(Math.min(0.1, t - lastAudioT));
