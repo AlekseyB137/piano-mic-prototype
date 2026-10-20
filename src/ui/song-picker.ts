@@ -10,7 +10,7 @@ export interface BestResult {
 
 function handsText(s: Song): string {
   const h = new Set(s.notes.map((n) => n.hand));
-  if (h.size === 2) return 'Обе руки';
+  if (h.size === 2) return 'Обе руки: слева — левой, справа — правой';
   return h.has('L') ? 'Левая рука' : 'Правая рука';
 }
 
