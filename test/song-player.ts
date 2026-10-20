@@ -52,7 +52,7 @@ const song: Song = {
 
 // «В такт»: 60 bpm, вступление 2 доли → доля шага k (start=k) наступает в t0 + 2 + k с
 {
-  const p = new SongPlayer(song, 'tempo', 2);
+  const p = new SongPlayer(song, 'tempo', 2, { earlySec: 0.18, lateSec: 0.18, latencySec: 0 });
   p.tick(100); // старт аудиочасов
   expect('В такт: первая доля через 2 с', p.stepTime(p.current!) === 102);
   p.tick(101.9);
@@ -74,6 +74,31 @@ const song: Song = {
   expect('В такт: время игры без паузы', Math.abs(p.elapsedSec - (105.9 - 100 - 1.92 - 2)) < 1e-6, `elapsed=${p.elapsedSec}`);
   p.restart();
   expect('В такт: сначала — часы сброшены', p.stepTime(p.current!) === null && p.lates === 0 && !p.waiting);
+}
+
+// Поправка на задержку: удар через 120 мс после доли — ровно вовремя
+{
+  const p = new SongPlayer(song, 'tempo', 2, { earlySec: 0.18, lateSec: 0.18, latencySec: 0.12 });
+  p.tick(100);
+  expect('Задержка: удар +120 мс после доли — отклонение 0', p.judge(true, 102.12, 102.2) === 'hit' && Math.abs(p.lastOffsetSec ?? 1) < 1e-9);
+  p.tick(103.25); // без поправки окно D4 закрылось бы в 103.18, с поправкой — в 103.30
+  expect('Задержка: окно сдвинуто — в 103.25 ещё не ждём', !p.waiting);
+  expect('Задержка: +250 мс после доли = +130 мс с поправкой — вовремя', p.judge(true, 103.25, 103.3) === 'hit');
+  const q = new SongPlayer(song, 'tempo', 0, { earlySec: 0.18, lateSec: 0.18, latencySec: 0 });
+  q.tick(0);
+  [0.13, 1.12, 2.14].forEach((t, i) => q.judge(true, t, t + 0.05) && i);
+  expect('Подсказка задержки: меньше 5 шагов — нет', q.suggestLatencyShift() === null);
+}
+{
+  const notes = Array.from({ length: 8 }, (_, i) => ({ pitch: 60, name: 'C4', start: i, dur: 1, hand: 'R' as const, finger: 1 }));
+  const q = new SongPlayer({ id: 'q', title: 'q', bpm: 60, notes }, 'tempo', 0, { earlySec: 0.18, lateSec: 0.18, latencySec: 0 });
+  q.tick(0);
+  [0.13, 1.12, 2.15, 3.1, 4.14, 5.13, 6.12, 7.6].forEach((t) => {
+    q.tick(t);
+    q.judge(true, t, t + 0.05);
+  });
+  const sh = q.suggestLatencyShift();
+  expect('Подсказка задержки: медиана ≈ +130 мс (одно долгое ожидание не в счёт)', sh !== null && Math.abs(sh - 0.13) < 0.006, `shift=${sh}`);
 }
 
 for (const s of SONGS) {

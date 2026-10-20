@@ -10,7 +10,7 @@ import { Readout, VERDICT_TEXT, type Mode } from './ui/readout';
 import { DebugPanel } from './ui/debug-panel';
 import { EventLog } from './ui/event-log';
 import { FallingNotes } from './ui/falling-notes';
-import { SongPlayer, type PlayMode } from './song/player';
+import { DEFAULT_WINDOW, SongPlayer, type PlayMode } from './song/player';
 import { SONGS } from './songs';
 import { SongPicker, type BestResult } from './ui/song-picker';
 
@@ -24,6 +24,7 @@ const LS_FFT = 'pianoMic.fft';
 const LS_SONG = 'pianoMic.song';
 const LS_BEST = 'pianoMic.best';
 const LS_PLAY_MODE = 'pianoMic.playMode';
+const LS_LATENCY = 'pianoMic.latency';
 function load<T>(key: string, fallback: T): T {
   try {
     const v = localStorage.getItem(key);
@@ -56,7 +57,10 @@ let ignoredAttacks = 0;
 // Режим «Песня»
 let songIdx = Math.max(0, SONGS.findIndex((s) => s.id === load(LS_SONG, { id: SONGS[0].id }).id));
 let playMode: PlayMode = load<{ m: PlayMode }>(LS_PLAY_MODE, { m: 'tempo' }).m;
-let player = new SongPlayer(SONGS[songIdx], playMode);
+/** Поправка ритма на задержку цепочки, мс (подстраивается кнопкой на экране «Готово!»). */
+let latencyMs = load<{ ms: number }>(LS_LATENCY, { ms: DEFAULT_WINDOW.latencySec * 1000 }).ms;
+const makePlayer = () => new SongPlayer(SONGS[songIdx], playMode, 4, { ...DEFAULT_WINDOW, latencySec: latencyMs / 1000 });
+let player = makePlayer();
 /** Аудиовремя = время анализатора + clockOffset (из событий 'clock' worklet'а). */
 let clockOffset: number | null = null;
 let songDoneShown = false;
@@ -148,6 +152,7 @@ function infoRows(): [string, string][] {
     const onsetLat = (128 + workletInfo.hop * 2 + workletInfo.smallFft / 2) / sr + inLat;
     rows.push(['Задержка (оценка)', `атака ≈ ${ms(onsetLat)}${inLat ? '' : ' + вход (н/д)'}; проверка: ${lastCheckLatency !== null ? `${lastCheckLatency} мс после удара (посл.)` : 'измеряется'}`]);
   }
+  rows.push(['Поправка ритма', `${latencyMs} мс («В такт»)`]);
   rows.push(['Отброшено атак', `${ignoredAttacks} (голос, стук, шум)`]);
   rows.push(['Шум', calibration ? `${calibration.rmsDb.toFixed(1)} дБFS, порог атаки ${calibration.onsetDelta}` : 'не откалиброван']);
   rows.push(['Пороги', `гейт +${params.gateDb} дБ, SNR ${params.snrDb} дБ, атака ${params.onsetDelta}+${params.onsetMultiplier}×мед.`]);
@@ -290,7 +295,7 @@ function setMode(m: Mode): void {
 
 // --- Песня ---
 function newPlayer(): void {
-  player = new SongPlayer(SONGS[songIdx], playMode);
+  player = makePlayer();
   songDoneShown = false;
 }
 
@@ -314,7 +319,7 @@ function chooseSong(): void {
 }
 $('#song-choose').addEventListener('click', chooseSong);
 function restartSong(): void {
-  player.restart();
+  newPlayer(); // заново, чтобы подхватить новую поправку ритма
   songDoneShown = false;
   songDone.classList.add('hidden');
   lastAudioT = null;
@@ -410,7 +415,27 @@ function showSongDone(): void {
   const best = document.createElement('div');
   best.className = 'tile-best';
   best.textContent = isBest && prev ? 'Новый лучший результат!' : '';
-  songDone.append(title, stats, best, row);
+  songDone.append(title, stats, best);
+  // Подстройка поправки ритма: среднее (медиана) отклонение заметно не ноль
+  const shift = playMode === 'tempo' ? player.suggestLatencyShift() : null;
+  if (shift !== null && Math.abs(shift) > 0.025) {
+    const ms = Math.round(shift * 1000);
+    const lat = document.createElement('div');
+    lat.textContent = `Обычно вы играете на ${ms >= 0 ? '+' : '−'}${Math.abs(ms)} мс от доли. Если играли ровно, это задержка телефона/пианино.`;
+    const fix = document.createElement('button');
+    fix.textContent = 'Учесть задержку';
+    fix.addEventListener('click', () => {
+      latencyMs = Math.max(0, Math.min(400, latencyMs + ms));
+      save(LS_LATENCY, { ms: latencyMs });
+      lat.textContent = `Поправка ритма теперь ${latencyMs} мс — нажмите «Ещё раз».`;
+      fix.remove();
+      log.add(`Поправка ритма: ${latencyMs} мс`);
+      refreshInfo();
+    });
+    row.append(fix);
+    songDone.append(lat);
+  }
+  songDone.append(row);
   songDone.classList.remove('hidden');
 }
 

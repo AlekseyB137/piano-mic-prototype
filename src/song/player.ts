@@ -26,9 +26,15 @@ export interface TempoWindow {
   earlySec: number;
   /** Насколько позже доли можно сыграть, с. */
   lateSec: number;
+  /**
+   * Поправка на задержку всей цепочки (экран → человек → пианино → микрофон → детектор), с:
+   * удар через latencySec после касания нотой линии считается сыгранным ровно в долю.
+   * На iPhone + цифровом пианино живые удары «вовремя» шли с +100…+164 мс и ни одного раньше.
+   */
+  latencySec: number;
 }
 
-export const DEFAULT_WINDOW: TempoWindow = { earlySec: 0.18, lateSec: 0.18 };
+export const DEFAULT_WINDOW: TempoWindow = { earlySec: 0.18, lateSec: 0.18, latencySec: 0.12 };
 
 /**
  * Логика прохождения песни, без DOM и аудио.
@@ -136,10 +142,10 @@ export class SongPlayer {
       this.beat = -this.leadInBeats + (now - this.startTime) / this.secPerBeat;
       const cur = this.current;
       if (cur) {
-        const deadline = this.stepTime(cur)! + this.window.lateSec;
+        const deadline = this.stepTime(cur)! + this.window.latencySec + this.window.lateSec;
         if (now > deadline) {
           this.pausedAt = deadline;
-          this.beat = cur.start + this.window.lateSec / this.secPerBeat;
+          this.beat = cur.start + (this.window.latencySec + this.window.lateSec) / this.secPerBeat;
         }
       }
     }
@@ -170,7 +176,7 @@ export class SongPlayer {
     const cur = this.current;
     const t = cur ? this.stepTime(cur) : null;
     if (!cur || t === null) return 'ignored';
-    const dt = onsetTime - t;
+    const dt = onsetTime - t - this.window.latencySec;
     if (!passed) {
       cur.mistakes++;
       this.mistakes++;
@@ -196,6 +202,19 @@ export class SongPlayer {
     }
     if (this.finished && this.endTime === null) this.endTime = now;
     return late ? 'late' : 'hit';
+  }
+
+  /**
+   * Предложение подстройки поправки: медиана отклонений сыгранных шагов (кроме долгих ожиданий),
+   * если таких шагов не меньше 5. Возвращает сдвиг, с, или null.
+   */
+  suggestLatencyShift(): number | null {
+    const o = this.steps
+      .map((s) => s.offsetSec)
+      .filter((x): x is number => x !== null && Math.abs(x) < 0.4)
+      .sort((a, b) => a - b);
+    if (o.length < 5) return null;
+    return o.length % 2 ? o[o.length >> 1] : 0.5 * (o[o.length / 2 - 1] + o[o.length / 2]);
   }
 
   restart(): void {
