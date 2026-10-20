@@ -29,7 +29,7 @@
   в src/audio/. Синтетика ловит логические ошибки, но не заменяет тест с настоящим пианино.
 - Режим «Песня» (октябрь 2026, начат): падающие ноты в режиме ожидания поверх движка проверки.
   src/song/player.ts — логика без DOM (`npm run test:song`), src/ui/falling-notes.ts — canvas,
-  песни в src/songs/*.json (формат ниже, start/dur в долях). Время — только AudioContext.currentTime.
+  песни в src/songs/*.json (формат ниже, start/dur в долях): Twinkle Twinkle Little Star, Ода к радости. Время — только AudioContext.currentTime.
 - Следующий шаг: тесты на реальном пианино в Telegram на iPhone и Android, разбор отчётов
   («Поделиться отчётом»), подстройка порогов. Найденные на живом звуке ошибки по возможности
   воспроизводить кейсом в стенде.

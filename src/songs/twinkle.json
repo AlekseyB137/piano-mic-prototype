@@ -1,0 +1,343 @@
+{
+ "id": "twinkle",
+ "title": "Twinkle Twinkle Little Star",
+ "bpm": 90,
+ "notes": [
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 0,
+   "dur": 1,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 1,
+   "dur": 1,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 2,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 3,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 69,
+   "name": "A4",
+   "start": 4,
+   "dur": 1,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 69,
+   "name": "A4",
+   "start": 5,
+   "dur": 1,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 6,
+   "dur": 2,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 8,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 9,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 10,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 11,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 62,
+   "name": "D4",
+   "start": 12,
+   "dur": 1,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 62,
+   "name": "D4",
+   "start": 13,
+   "dur": 1,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 14,
+   "dur": 2,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 16,
+   "dur": 1,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 17,
+   "dur": 1,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 18,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 19,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 20,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 21,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 62,
+   "name": "D4",
+   "start": 22,
+   "dur": 2,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 24,
+   "dur": 1,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 25,
+   "dur": 1,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 26,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 27,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 28,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 29,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 62,
+   "name": "D4",
+   "start": 30,
+   "dur": 2,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 32,
+   "dur": 1,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 33,
+   "dur": 1,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 34,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 35,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 69,
+   "name": "A4",
+   "start": 36,
+   "dur": 1,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 69,
+   "name": "A4",
+   "start": 37,
+   "dur": 1,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 38,
+   "dur": 2,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 40,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 41,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 42,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 43,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 62,
+   "name": "D4",
+   "start": 44,
+   "dur": 1,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 62,
+   "name": "D4",
+   "start": 45,
+   "dur": 1,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 46,
+   "dur": 2,
+   "hand": "R",
+   "finger": 1
+  }
+ ]
+}
