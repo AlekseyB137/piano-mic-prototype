@@ -186,9 +186,10 @@ export class FallingNotes {
     g.fillRect(0, hitY - 1, W, 3);
 
     // «В такт»: отсчёт вступления 4-3-2-1 (метроном звуком нельзя — его услышит микрофон)
-    if (mode === 'tempo' && player.displayBeat < 0 && player.displayBeat > -player.leadInBeats) {
-      const n = Math.ceil(-player.displayBeat);
-      const frac = -player.displayBeat - (n - 1); // 1 → 0 в течение доли
+    // Отсчёт — по настоящему времени песни (beat), а не по позиции отрисовки
+    if (mode === 'tempo' && player.beat < 0 && player.beat > -player.leadInBeats) {
+      const n = Math.ceil(-player.beat);
+      const frac = -player.beat - (n - 1); // 1 → 0 в течение доли
       g.globalAlpha = 0.25 + 0.6 * frac;
       g.fillStyle = css('--text', '#e8eaef');
       g.textAlign = 'center';

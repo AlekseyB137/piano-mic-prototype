@@ -257,6 +257,13 @@ for (const c of [
   expect('Повторный удар C4 через 1.2 с (нота ещё звучит)', ok === 2, `засчитано ${ok} из 2`);
 }
 
+// 4б. Живой отчёт 2026-10-20 (Twinkle, «F F E E»): повтор той же ноты через ~0.65 с поверх её звучания
+for (const [label, m] of [['E4', 64], ['F4', 65], ['C4', 60]] as const) {
+  const ev = run(render(2.2, [{ at: 0.2, midis: [m] }, { at: 0.85, midis: [m] }, { at: 1.5, midis: [m] }]), (a) => a.setExpected([m]));
+  const ok = ev.filter((e): e is CheckEvent => e.type === 'check' && e.allPassed).length;
+  expect(`Повтор ${label} ×3 через 0.65 с (нота ещё звучит)`, ok === 3, `засчитано ${ok} из 3`);
+}
+
 // 5. Тишина и шум: ни одного события
 {
   const ev = run(render(3, [], 0.004), (a) => a.setExpected([60]));

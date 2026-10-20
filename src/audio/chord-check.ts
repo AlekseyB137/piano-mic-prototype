@@ -216,14 +216,17 @@ export function evaluateNotes(ctx: SpectrumContext, expected: number[], p: Chord
       if (v >= p.snrDb && v >= h1.snrDb - p.octaveMarginDb) octaveDown = true;
     }
 
-    // Новый удар: должны вырасти минимум ДВА сильных партиала (если их столько есть).
+    // Новый удар (аккорд): должны вырасти минимум ДВА сильных партиала (если их столько есть).
     // Один «растущий» партиал даёт и остаток прошлого аккорда, подсвеченный шумом удара
     // соседних нот (живой отчёт: E5 без удара засчитывалась на 10–11 дБ).
     let rising = true;
     if (ctx.reference && p.riseDb > 0) {
       const pool = strongOwn.length > 0 ? strongOwn : harmonics.filter((x) => x.snrDb >= p.snrDb);
       const risen = pool.filter((x) => x.riseDb !== null && x.riseDb >= p.riseDb).length;
-      rising = risen >= Math.min(2, pool.length) && risen > 0;
+      // Для одиночной ноты хватит одного: повтор той же ноты (E E, F F) поверх её же звучания
+      // даёт рост в случайной фазе, и требование двух партиалов теряло настоящие удары
+      const need = expected.length > 1 ? 2 : 1;
+      rising = risen >= Math.min(need, pool.length) && risen > 0;
     }
 
     const positive = own.length ? own : harmonics;

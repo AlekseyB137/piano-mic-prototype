@@ -19,6 +19,8 @@ export interface Step {
   offsetSec: number | null;
   /** «В такт»: сыграно после окна (игра стояла и ждала). */
   late: boolean;
+  /** «В такт»: сыграно раньше окна (принято, но не «вовремя»). */
+  early: boolean;
 }
 
 export interface TempoWindow {
@@ -52,8 +54,9 @@ export class SongPlayer {
   /** Позиция линии удара, доли. До начала — отрицательная (вступление). */
   beat: number;
   /**
-   * Позиция для отрисовки. Обычно = beat; когда «В такт» встал в ожидание (окно прошло и нота
-   * уже ушла за линию), плавно возвращается к доле шага — ожидаемая нота видна на линии целиком.
+   * Позиция для отрисовки. «В такт»: сдвинута на поправку задержки (нота касается линии в момент,
+   * когда нужно ударить) и НЕ уходит за линию, пока текущий шаг не сыгран — нота стоит над
+   * клавишей; после удара позиция плавно догоняет ритм.
    */
   displayBeat: number;
   waiting = false;
@@ -61,6 +64,8 @@ export class SongPlayer {
   mistakes = 0;
   /** Шаги, сыгранные после окна («В такт»). */
   lates = 0;
+  /** Шаги, сыгранные раньше окна («В такт») — приняты, но не «вовремя». */
+  earlies = 0;
   /** Время игры, с. */
   elapsedSec = 0;
   /** Последнее отклонение попадания от доли, с («В такт»). */
@@ -71,6 +76,7 @@ export class SongPlayer {
   private endTime: number | null = null;
   /** «В такт»: аудиовремя, с которого игра стоит в ожидании (окно текущего шага прошло). */
   private pausedAt: number | null = null;
+  private lastTickAt: number | null = null;
 
   constructor(
     readonly song: Song,
@@ -92,6 +98,7 @@ export class SongPlayer {
       mistakes: 0,
       offsetSec: null,
       late: false,
+      early: false,
     }));
     this.beat = -leadInBeats;
     this.displayBeat = this.beat;
@@ -156,9 +163,15 @@ export class SongPlayer {
       }
     }
     this.waiting = this.pausedAt !== null;
+    // Отрисовка: со сдвигом на поправку задержки и не дальше линии, пока шаг не сыгран
     const cur = this.current;
-    this.displayBeat =
-      this.pausedAt !== null && cur ? cur.start + (this.beat - cur.start) * Math.exp(-(now - this.pausedAt) / 0.06) : this.beat;
+    let raw = this.beat - this.window.latencySec / this.secPerBeat;
+    if (cur) raw = Math.min(raw, cur.start);
+    const dt = this.lastTickAt === null ? 1 : Math.max(0, now - this.lastTickAt);
+    this.lastTickAt = now;
+    // Назад — сразу (ноту не «утаскивает» за линию), вперёд — плавно догоняем (~0.12 с)
+    const next = raw <= this.displayBeat ? raw : this.displayBeat + (raw - this.displayBeat) * Math.min(1, dt / 0.12);
+    this.displayBeat = raw - next < 1e-3 ? raw : next; // доехали — встаём точно на линию
     if (this.finished && this.endTime === null) this.endTime = now;
     const pause = this.pausedAt !== null ? now - this.pausedAt : 0;
     this.elapsedSec = Math.max(0, (this.endTime ?? now) - pause - this.startTime - this.leadInBeats * this.secPerBeat);
@@ -191,18 +204,19 @@ export class SongPlayer {
       this.mistakes++;
       return 'wrong';
     }
-    if (dt < -this.window.earlySec) {
-      cur.mistakes++;
-      this.mistakes++;
-      return 'early';
-    }
+    // Правильная нота принимается всегда; «рано»/«поздно» — не «вовремя», но песня идёт дальше.
+    // (Отвергать раннюю ноту нельзя: человек нажал, услышал звук, а ничего не произошло — в живом
+    // отчёте это выглядело как «не слышит нажатие».)
+    const early = dt < -this.window.earlySec;
     const late = dt > this.window.lateSec;
     cur.offsetSec = dt;
     cur.late = late;
+    cur.early = early;
     if (late) this.lates++;
+    else if (early) this.earlies++;
     else this.lastOffsetSec = dt;
     this.complete(cur);
-    this.hits -= late ? 1 : 0; // «поздно» не считается попаданием вовремя
+    if (late || early) this.hits--; // не «вовремя»
     if (late && this.startTime !== null) {
       // «Поздно»: ритм продолжается ОТ УДАРА — следующий шаг ровно через свою длительность после него.
       // (Если продолжать с места остановки, следующая нота придёт раньше, чем через долю после удара,
@@ -212,7 +226,7 @@ export class SongPlayer {
     this.pausedAt = null;
     this.waiting = false;
     if (this.finished && this.endTime === null) this.endTime = onsetTime; // конец песни — последний удар
-    return late ? 'late' : 'hit';
+    return late ? 'late' : early ? 'early' : 'hit';
   }
 
   /**
@@ -234,11 +248,13 @@ export class SongPlayer {
       s.mistakes = 0;
       s.offsetSec = null;
       s.late = false;
+      s.early = false;
     }
     this.idx = 0;
     this.beat = this.displayBeat = -this.leadInBeats;
     this.waiting = false;
-    this.hits = this.mistakes = this.lates = 0;
+    this.hits = this.mistakes = this.lates = this.earlies = 0;
+    this.lastTickAt = null;
     this.elapsedSec = 0;
     this.lastOffsetSec = null;
     this.startTime = this.endTime = this.pausedAt = null;

@@ -368,7 +368,7 @@ function updateSongStatus(): void {
   else text = '';
   let counters = `${text ? ' · ' : ''}✓ ${player.hits} · ✗ ${player.mistakes}`;
   if (playMode === 'tempo') {
-    counters += ` · поздно ${player.lates}`;
+    counters += ` · рано ${player.earlies} · поздно ${player.lates}`;
     const o = player.lastOffsetSec;
     if (o !== null) counters += ` · последняя ${o >= 0 ? '+' : '−'}${Math.abs(Math.round(o * 1000))} мс`;
   }
@@ -388,7 +388,7 @@ function showSongDone(): void {
   const stats = document.createElement('div');
   stats.textContent =
     playMode === 'tempo'
-      ? `Вовремя: ${player.hits} из ${total} · поздно: ${player.lates} · ошибок: ${player.mistakes}${timingSummary()}`
+      ? `Вовремя: ${player.hits} из ${total} · рано: ${player.earlies} · поздно: ${player.lates} · ошибок: ${player.mistakes}${timingSummary()}`
       : `Нот/аккордов: ${total} · ошибок: ${player.mistakes} · время: ${fmtTime(player.elapsedSec)}`;
   const again = document.createElement('button');
   again.className = 'primary';
@@ -442,13 +442,13 @@ function showSongDone(): void {
 
 /** Среднее отклонение попаданий: помогает понять, не нужна ли поправка на задержку. */
 function timingSummary(): string {
-  const o = player.steps.filter((s) => !s.late).map((s) => s.offsetSec).filter((x): x is number => x !== null);
+  const o = player.steps.filter((s) => !s.late && !s.early).map((s) => s.offsetSec).filter((x): x is number => x !== null);
   if (!o.length) return '';
   const mean = (o.reduce((a, b) => a + b, 0) / o.length) * 1000;
   return ` · в среднем ${mean >= 0 ? '+' : '−'}${Math.abs(Math.round(mean))} мс`;
 }
 
-const JUDGE_TEXT = { hit: 'вовремя', early: 'рано', late: 'поздно (игра ждала)', wrong: 'не та нота', ignored: '' } as const;
+const JUDGE_TEXT = { hit: 'вовремя', early: 'рано (принято)', late: 'поздно (игра ждала)', wrong: 'не та нота', ignored: '' } as const;
 
 /** Шаг сыгран: нота «уходит в клавишу», клавиша вспыхивает зелёным. */
 function songStepDone(stepIndex: number, midis: number[], now: number): void {
@@ -468,8 +468,12 @@ function onSongCheck(allPassed: boolean, notes: { midi: number; passed: boolean 
     const j = player.judge(allPassed, onsetTime + clockOffset, now);
     if (j === 'ignored') return;
     const off = player.lastOffsetSec;
-    log.add(`В такт: ${JUDGE_TEXT[j]}${j === 'hit' && off !== null ? ` (${off >= 0 ? '+' : '−'}${Math.abs(Math.round(off * 1000))} мс)` : ''}`, j === 'hit' ? 'pass' : 'fail');
-    if (j === 'hit' || j === 'late') {
+    const o = step?.offsetSec ?? off;
+    log.add(
+      `В такт: ${JUDGE_TEXT[j]}${j !== 'wrong' && o !== null ? ` (${o >= 0 ? '+' : '−'}${Math.abs(Math.round(o * 1000))} мс)` : ''}`,
+      j === 'wrong' ? 'fail' : 'pass',
+    );
+    if (j === 'hit' || j === 'late' || j === 'early') {
       if (step) songStepDone(step.index, notes.map((n) => n.midi), now);
       sendExpected();
     } else {
