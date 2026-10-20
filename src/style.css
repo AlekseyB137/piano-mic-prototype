@@ -281,3 +281,7 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
 
 /* На экранах выбора мелодии и «Готово!» клавиатура скрыта — освобождает место для кнопок */
 #app.song-overlay > #keyboard { display: none; }
+
+.hand-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 3px 0 4px; vertical-align: middle; }
+.hand-dot.r { background: var(--hand-r); }
+.hand-dot.l { background: var(--hand-l); }

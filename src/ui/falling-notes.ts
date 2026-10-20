@@ -116,24 +116,24 @@ export class FallingNotes {
         }
         g.globalAlpha = alpha;
 
-        // Подписи: палец крупно, под ним нота и рука; на короткой ноте — всё в одну строку
+        // Подписи: палец крупно, под ним нота; на короткой ноте — в одну строку.
+        // Рука показывается только цветом (правая — --hand-r, левая — --hand-l).
         const h = yBot - yTop;
         if (h > 14 && w > 14) {
           g.fillStyle = colText;
           g.textAlign = 'center';
           g.textBaseline = 'middle';
           const cx = x + w / 2;
-          const hand = n.hand === 'L' ? 'Л' : 'П';
           const fs = Math.min(22, w * 0.6, h * 0.5);
           if (h > fs + 18) {
             g.font = `700 ${fs}px -apple-system, system-ui, sans-serif`;
             g.fillText(String(n.finger), cx, yBot - h / 2 - 6);
             g.font = `600 ${Math.min(11, w * 0.3)}px -apple-system, system-ui, sans-serif`;
-            g.fillText(`${n.name} ${hand}`, cx, yBot - 9);
+            g.fillText(n.name, cx, yBot - 9);
           } else {
-            const fs1 = Math.min(14, h * 0.6, w * 0.24);
+            const fs1 = Math.min(14, h * 0.6, w * 0.28);
             g.font = `700 ${fs1}px -apple-system, system-ui, sans-serif`;
-            g.fillText(`${n.finger} ${n.name}${hand}`, cx, yBot - h / 2);
+            g.fillText(`${n.finger} ${n.name}`, cx, yBot - h / 2);
           }
         }
         g.globalAlpha = 1;

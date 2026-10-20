@@ -357,7 +357,7 @@ function updateSongStatus(): void {
   else if (!capture.running) text = 'Нажмите «Старт», затем «Тишина 2 с»';
   else if (!cur) text = 'Готово!';
   else {
-    const what = cur.notes.map((n) => `${n.name} ${n.hand === 'L' ? 'Л' : 'П'}${n.finger}`).join(' + ');
+    const what = cur.notes.map((n) => `${n.name}\u00a0(${n.finger})`).join(' + ');
     const lead =
       playMode === 'tempo'
         ? player.beat < 0
@@ -376,7 +376,12 @@ function updateSongStatus(): void {
     const o = player.lastOffsetSec;
     if (o !== null) counters += ` · последняя ${o >= 0 ? '+' : '−'}${Math.abs(Math.round(o * 1000))} мс`;
   }
-  songStatus.innerHTML = text + counters;
+  const hands = new Set(player.song.notes.map((n) => n.hand));
+  const legend =
+    hands.size > 1 && !picker.visible
+      ? ' · <span class="hand-dot r"></span>правая <span class="hand-dot l"></span>левая'
+      : '';
+  songStatus.innerHTML = text + counters + legend;
 }
 
 function showSongDone(): void {
