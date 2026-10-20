@@ -1,0 +1,280 @@
+{
+ "id": "canon-c",
+ "title": "Канон (Пахельбель), до мажор",
+ "bpm": 60,
+ "order": 50,
+ "notes": [
+  {
+   "pitch": 48,
+   "name": "C3",
+   "start": 0,
+   "dur": 2,
+   "hand": "L",
+   "finger": 1
+  },
+  {
+   "pitch": 76,
+   "name": "E5",
+   "start": 0,
+   "dur": 2,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 43,
+   "name": "G2",
+   "start": 2,
+   "dur": 2,
+   "hand": "L",
+   "finger": 4
+  },
+  {
+   "pitch": 74,
+   "name": "D5",
+   "start": 2,
+   "dur": 2,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 45,
+   "name": "A2",
+   "start": 4,
+   "dur": 2,
+   "hand": "L",
+   "finger": 3
+  },
+  {
+   "pitch": 72,
+   "name": "C5",
+   "start": 4,
+   "dur": 2,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 40,
+   "name": "E2",
+   "start": 6,
+   "dur": 2,
+   "hand": "L",
+   "finger": 5
+  },
+  {
+   "pitch": 71,
+   "name": "B4",
+   "start": 6,
+   "dur": 2,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 41,
+   "name": "F2",
+   "start": 8,
+   "dur": 2,
+   "hand": "L",
+   "finger": 4
+  },
+  {
+   "pitch": 69,
+   "name": "A4",
+   "start": 8,
+   "dur": 2,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 36,
+   "name": "C2",
+   "start": 10,
+   "dur": 2,
+   "hand": "L",
+   "finger": 5
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 10,
+   "dur": 2,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 41,
+   "name": "F2",
+   "start": 12,
+   "dur": 2,
+   "hand": "L",
+   "finger": 2
+  },
+  {
+   "pitch": 69,
+   "name": "A4",
+   "start": 12,
+   "dur": 2,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 43,
+   "name": "G2",
+   "start": 14,
+   "dur": 2,
+   "hand": "L",
+   "finger": 1
+  },
+  {
+   "pitch": 71,
+   "name": "B4",
+   "start": 14,
+   "dur": 2,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 48,
+   "name": "C3",
+   "start": 16,
+   "dur": 2,
+   "hand": "L",
+   "finger": 1
+  },
+  {
+   "pitch": 72,
+   "name": "C5",
+   "start": 16,
+   "dur": 2,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 43,
+   "name": "G2",
+   "start": 18,
+   "dur": 2,
+   "hand": "L",
+   "finger": 4
+  },
+  {
+   "pitch": 71,
+   "name": "B4",
+   "start": 18,
+   "dur": 2,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 45,
+   "name": "A2",
+   "start": 20,
+   "dur": 2,
+   "hand": "L",
+   "finger": 3
+  },
+  {
+   "pitch": 69,
+   "name": "A4",
+   "start": 20,
+   "dur": 2,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 40,
+   "name": "E2",
+   "start": 22,
+   "dur": 2,
+   "hand": "L",
+   "finger": 5
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 22,
+   "dur": 2,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 41,
+   "name": "F2",
+   "start": 24,
+   "dur": 2,
+   "hand": "L",
+   "finger": 4
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 24,
+   "dur": 2,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 36,
+   "name": "C2",
+   "start": 26,
+   "dur": 2,
+   "hand": "L",
+   "finger": 5
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 26,
+   "dur": 2,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 41,
+   "name": "F2",
+   "start": 28,
+   "dur": 2,
+   "hand": "L",
+   "finger": 2
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 28,
+   "dur": 2,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 43,
+   "name": "G2",
+   "start": 30,
+   "dur": 2,
+   "hand": "L",
+   "finger": 1
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 30,
+   "dur": 2,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 48,
+   "name": "C3",
+   "start": 32,
+   "dur": 4,
+   "hand": "L",
+   "finger": 1
+  },
+  {
+   "pitch": 72,
+   "name": "C5",
+   "start": 32,
+   "dur": 4,
+   "hand": "R",
+   "finger": 5
+  }
+ ]
+}

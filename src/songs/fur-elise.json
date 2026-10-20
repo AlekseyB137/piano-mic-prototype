@@ -1,0 +1,432 @@
+{
+ "id": "fur-elise",
+ "title": "К Элизе (Бетховен), начало",
+ "bpm": 60,
+ "order": 40,
+ "notes": [
+  {
+   "pitch": 76,
+   "name": "E5",
+   "start": 0.0,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 75,
+   "name": "D#5",
+   "start": 0.25,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 76,
+   "name": "E5",
+   "start": 0.5,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 75,
+   "name": "D#5",
+   "start": 0.75,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 76,
+   "name": "E5",
+   "start": 1.0,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 71,
+   "name": "B4",
+   "start": 1.25,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 74,
+   "name": "D5",
+   "start": 1.5,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 72,
+   "name": "C5",
+   "start": 1.75,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 45,
+   "name": "A2",
+   "start": 2.0,
+   "dur": 0.25,
+   "hand": "L",
+   "finger": 5
+  },
+  {
+   "pitch": 69,
+   "name": "A4",
+   "start": 2.0,
+   "dur": 0.5,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 52,
+   "name": "E3",
+   "start": 2.25,
+   "dur": 0.25,
+   "hand": "L",
+   "finger": 2
+  },
+  {
+   "pitch": 57,
+   "name": "A3",
+   "start": 2.5,
+   "dur": 0.75,
+   "hand": "L",
+   "finger": 1
+  },
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 2.75,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 3.0,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 69,
+   "name": "A4",
+   "start": 3.25,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 40,
+   "name": "E2",
+   "start": 3.5,
+   "dur": 0.25,
+   "hand": "L",
+   "finger": 5
+  },
+  {
+   "pitch": 71,
+   "name": "B4",
+   "start": 3.5,
+   "dur": 0.5,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 52,
+   "name": "E3",
+   "start": 3.75,
+   "dur": 0.25,
+   "hand": "L",
+   "finger": 2
+  },
+  {
+   "pitch": 56,
+   "name": "G#3",
+   "start": 4.0,
+   "dur": 0.75,
+   "hand": "L",
+   "finger": 1
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 4.25,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 68,
+   "name": "G#4",
+   "start": 4.5,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 71,
+   "name": "B4",
+   "start": 4.75,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 45,
+   "name": "A2",
+   "start": 5.0,
+   "dur": 0.25,
+   "hand": "L",
+   "finger": 5
+  },
+  {
+   "pitch": 72,
+   "name": "C5",
+   "start": 5.0,
+   "dur": 0.5,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 52,
+   "name": "E3",
+   "start": 5.25,
+   "dur": 0.25,
+   "hand": "L",
+   "finger": 2
+  },
+  {
+   "pitch": 57,
+   "name": "A3",
+   "start": 5.5,
+   "dur": 0.75,
+   "hand": "L",
+   "finger": 1
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 5.75,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 76,
+   "name": "E5",
+   "start": 6.0,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 75,
+   "name": "D#5",
+   "start": 6.25,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 76,
+   "name": "E5",
+   "start": 6.5,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 75,
+   "name": "D#5",
+   "start": 6.75,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 76,
+   "name": "E5",
+   "start": 7.0,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 71,
+   "name": "B4",
+   "start": 7.25,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 74,
+   "name": "D5",
+   "start": 7.5,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 72,
+   "name": "C5",
+   "start": 7.75,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 45,
+   "name": "A2",
+   "start": 8.0,
+   "dur": 0.25,
+   "hand": "L",
+   "finger": 5
+  },
+  {
+   "pitch": 69,
+   "name": "A4",
+   "start": 8.0,
+   "dur": 0.5,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 52,
+   "name": "E3",
+   "start": 8.25,
+   "dur": 0.25,
+   "hand": "L",
+   "finger": 2
+  },
+  {
+   "pitch": 57,
+   "name": "A3",
+   "start": 8.5,
+   "dur": 0.75,
+   "hand": "L",
+   "finger": 1
+  },
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 8.75,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 9.0,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 69,
+   "name": "A4",
+   "start": 9.25,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 40,
+   "name": "E2",
+   "start": 9.5,
+   "dur": 0.25,
+   "hand": "L",
+   "finger": 5
+  },
+  {
+   "pitch": 71,
+   "name": "B4",
+   "start": 9.5,
+   "dur": 0.5,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 52,
+   "name": "E3",
+   "start": 9.75,
+   "dur": 0.25,
+   "hand": "L",
+   "finger": 2
+  },
+  {
+   "pitch": 56,
+   "name": "G#3",
+   "start": 10.0,
+   "dur": 0.75,
+   "hand": "L",
+   "finger": 1
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 10.25,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 72,
+   "name": "C5",
+   "start": 10.5,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 71,
+   "name": "B4",
+   "start": 10.75,
+   "dur": 0.25,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 45,
+   "name": "A2",
+   "start": 11.0,
+   "dur": 1.5,
+   "hand": "L",
+   "finger": 5
+  },
+  {
+   "pitch": 69,
+   "name": "A4",
+   "start": 11.0,
+   "dur": 1.5,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 52,
+   "name": "E3",
+   "start": 11.25,
+   "dur": 1.25,
+   "hand": "L",
+   "finger": 2
+  },
+  {
+   "pitch": 57,
+   "name": "A3",
+   "start": 11.5,
+   "dur": 1.0,
+   "hand": "L",
+   "finger": 1
+  }
+ ]
+}

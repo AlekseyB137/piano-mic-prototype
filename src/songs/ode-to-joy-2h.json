@@ -1,0 +1,320 @@
+{
+ "id": "ode-to-joy-2h",
+ "title": "Ода к радости (Симфония № 9), двумя руками",
+ "bpm": 80,
+ "order": 35,
+ "notes": [
+  {
+   "pitch": 48,
+   "name": "C3",
+   "start": 0,
+   "dur": 4,
+   "hand": "L",
+   "finger": 5
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 0,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 1,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 2,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 3,
+   "dur": 1,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 55,
+   "name": "G3",
+   "start": 4,
+   "dur": 4,
+   "hand": "L",
+   "finger": 1
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 4,
+   "dur": 1,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 5,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 6,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 62,
+   "name": "D4",
+   "start": 7,
+   "dur": 1,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 48,
+   "name": "C3",
+   "start": 8,
+   "dur": 4,
+   "hand": "L",
+   "finger": 5
+  },
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 8,
+   "dur": 1,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 9,
+   "dur": 1,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 62,
+   "name": "D4",
+   "start": 10,
+   "dur": 1,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 11,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 55,
+   "name": "G3",
+   "start": 12,
+   "dur": 4,
+   "hand": "L",
+   "finger": 1
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 12,
+   "dur": 1.5,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 62,
+   "name": "D4",
+   "start": 13.5,
+   "dur": 0.5,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 62,
+   "name": "D4",
+   "start": 14.0,
+   "dur": 2,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 48,
+   "name": "C3",
+   "start": 16,
+   "dur": 4,
+   "hand": "L",
+   "finger": 5
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 16.0,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 17.0,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 18.0,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 19.0,
+   "dur": 1,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 55,
+   "name": "G3",
+   "start": 20,
+   "dur": 4,
+   "hand": "L",
+   "finger": 1
+  },
+  {
+   "pitch": 67,
+   "name": "G4",
+   "start": 20.0,
+   "dur": 1,
+   "hand": "R",
+   "finger": 5
+  },
+  {
+   "pitch": 65,
+   "name": "F4",
+   "start": 21.0,
+   "dur": 1,
+   "hand": "R",
+   "finger": 4
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 22.0,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 62,
+   "name": "D4",
+   "start": 23.0,
+   "dur": 1,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 48,
+   "name": "C3",
+   "start": 24,
+   "dur": 4,
+   "hand": "L",
+   "finger": 5
+  },
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 24.0,
+   "dur": 1,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 25.0,
+   "dur": 1,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 62,
+   "name": "D4",
+   "start": 26.0,
+   "dur": 1,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 64,
+   "name": "E4",
+   "start": 27.0,
+   "dur": 1,
+   "hand": "R",
+   "finger": 3
+  },
+  {
+   "pitch": 55,
+   "name": "G3",
+   "start": 28,
+   "dur": 2,
+   "hand": "L",
+   "finger": 1
+  },
+  {
+   "pitch": 62,
+   "name": "D4",
+   "start": 28.0,
+   "dur": 1.5,
+   "hand": "R",
+   "finger": 2
+  },
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 29.5,
+   "dur": 0.5,
+   "hand": "R",
+   "finger": 1
+  },
+  {
+   "pitch": 48,
+   "name": "C3",
+   "start": 30,
+   "dur": 2,
+   "hand": "L",
+   "finger": 5
+  },
+  {
+   "pitch": 60,
+   "name": "C4",
+   "start": 30.0,
+   "dur": 2,
+   "hand": "R",
+   "finger": 1
+  }
+ ]
+}

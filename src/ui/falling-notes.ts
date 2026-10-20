@@ -1,8 +1,15 @@
 import type { PlayMode, SongPlayer } from '../song/player';
 import type { KeyGeometry } from './keyboard';
 
-/** Сколько долей видно над линией удара. */
-const LOOKAHEAD_BEATS = 4;
+/**
+ * Сколько секунд видно над линией удара (как в Synthesia — скорость по времени, а не по долям:
+ * на медленном темпе короткие ноты становятся крупнее).
+ */
+const LOOKAHEAD_SEC = 2.6;
+/** Промежуток не больше этой доли длины ноты — иначе короткая нота (шестнадцатая) исчезает. */
+const GAP_MAX_SHARE = 0.35;
+/** Ниже этой высоты промежутка номер пальца не помещается под нотой — рисуем его на ноте. */
+const FINGER_MIN_GAP = 12;
 /**
  * Зазор между нотами по вертикали (как в Synthesia), доля доли; в нём под каждой нотой — номер пальца.
  * Нижний край ноты по-прежнему приходит к линии ровно в свою долю — укорачивается верх.
@@ -81,14 +88,20 @@ export class FallingNotes {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, W, H);
 
-    const ppb = H / LOOKAHEAD_BEATS; // пикселей на долю
+    const lookBeats = LOOKAHEAD_SEC / player.secPerBeat;
+    const ppb = H / lookBeats; // пикселей на долю
     const hitY = H - 2;
-    const gap = Math.max(GAP_MIN_PX, Math.min(GAP_MAX_PX, ppb * GAP_BEATS));
+    const gapBase = Math.max(GAP_MIN_PX, Math.min(GAP_MAX_PX, ppb * GAP_BEATS));
+    const gapOf = (dur: number) => Math.min(gapBase, dur * ppb * GAP_MAX_SHARE);
+    // Место под нотой: промежуток ноты, идущей вплотную ниже на той же клавише (иначе — свободно)
+    const below = new Map<string, number>();
+    for (const st of player.steps) for (const nn of st.notes) below.set(`${nn.pitch}@${Math.round((nn.start + nn.dur) * 1000)}`, gapOf(nn.dur));
+    const spaceUnder = (n: { pitch: number; start: number }) => below.get(`${n.pitch}@${Math.round(n.start * 1000)}`) ?? gapBase;
 
     // Сетка долей — помогает почувствовать ритм
     g.strokeStyle = css('--border', '#2c313c');
     g.lineWidth = 1;
-    for (let b = Math.ceil(player.displayBeat); b < player.displayBeat + LOOKAHEAD_BEATS + 1; b++) {
+    for (let b = Math.ceil(player.displayBeat); b < player.displayBeat + lookBeats + 1; b++) {
       const y = hitY - (b - player.displayBeat) * ppb;
       g.globalAlpha = b % 4 === 0 ? 0.9 : 0.35;
       g.beginPath();
@@ -116,7 +129,7 @@ export class FallingNotes {
         const geo = this.geometry(n.pitch);
         if (!geo) continue;
         const bottom = hitY - (n.start - player.displayBeat) * ppb;
-        const top = bottom - n.dur * ppb + gap;
+        const top = bottom - n.dur * ppb + gapOf(n.dur);
         if (sinkP < 0 && (bottom < -4 || top > H)) continue;
         const pad = geo.w * W * (geo.black ? 0.04 : 0.1);
         const x = geo.x * W + pad;
@@ -171,23 +184,26 @@ export class FallingNotes {
         }
         g.globalAlpha = alpha;
 
-        // На ноте — буква звука (без октавы)
+        // На ноте — буква звука (без октавы); палец — под нотой, а если там нет места — на ноте
         const h = yBot - yTop;
         const cx = x + w / 2;
+        const letter = n.name.replace(/-?\d+$/, '');
+        const space = spaceUnder(n);
+        const fingerOnNote = space < FINGER_MIN_GAP;
         g.textAlign = 'center';
         g.textBaseline = 'middle';
-        if (h > 12 && w > 12) {
+        if (h > 10 && w > 12) {
           g.fillStyle = colText;
-          g.font = `800 ${Math.min(22, w * 0.55, h * 0.6)}px -apple-system, system-ui, sans-serif`;
-          g.fillText(n.name.replace(/-?\d+$/, ''), cx, yTop + h / 2);
+          g.font = `800 ${Math.min(22, w * (fingerOnNote ? 0.3 : 0.55), h * 0.6)}px -apple-system, system-ui, sans-serif`;
+          g.fillText(fingerOnNote && sinkP < 0 ? `${letter} ${n.finger}` : letter, cx, yTop + h / 2);
         }
         // Под нотой, в зазоре, — номер пальца (у ноты на линии место занято клавиатурой:
         // её палец показывает сама клавиша)
-        const fy = bottom + gap / 2;
-        if (sinkP < 0 && fy + 7 < hitY && fy > 0) {
+        const fy = bottom + space / 2;
+        if (!fingerOnNote && sinkP < 0 && fy + 7 < hitY && fy > 0) {
           g.globalAlpha = 1;
           g.fillStyle = fill;
-          g.font = `800 ${Math.min(15, gap * 0.75)}px -apple-system, system-ui, sans-serif`;
+          g.font = `800 ${Math.min(15, space * 0.75)}px -apple-system, system-ui, sans-serif`;
           g.fillText(String(n.finger), cx, fy);
         }
         g.globalAlpha = 1;

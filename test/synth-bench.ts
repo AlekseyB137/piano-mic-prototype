@@ -4,6 +4,8 @@
  * Синтетика ≠ живой инструмент: стенд ловит логические ошибки и регрессии,
  * но не заменяет проверку с настоящим пианино и микрофоном телефона.
  */
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Analyzer } from '../src/audio/analyzer';
 import { midiToFreq, midiToName } from '../src/audio/notes';
 import type { AnalyzerEvent, CheckEvent, NoteEvent } from '../src/audio/messages';
@@ -273,6 +275,46 @@ for (const c of [
     }
   }
   expect('Twinkle двумя руками: 8 пар × (обе / только бас / только мелодия)', bad.length === 0, bad.join('; '));
+}
+
+// 3г. Все песни каталога: каждый момент, где руки звучат вместе (мелодия + бас), в трёх вариантах.
+// Основной тон низких нот ослаблен (микрофон iPhone).
+{
+  const dir = join(import.meta.dirname, '../src/songs');
+  const combos = new Map<string, { lo: number[]; hi: number[]; songs: Set<string> }>();
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    const song = JSON.parse(readFileSync(join(dir, f), 'utf-8')) as { title: string; notes: { pitch: number; start: number; hand: string }[] };
+    const byStart = new Map<number, { pitch: number; hand: string }[]>();
+    for (const n of song.notes) byStart.set(n.start, [...(byStart.get(n.start) ?? []), n]);
+    for (const g of byStart.values()) {
+      const L = [...new Set(g.filter((n) => n.hand === 'L').map((n) => n.pitch))].sort((a, b) => a - b);
+      const R = [...new Set(g.filter((n) => n.hand === 'R').map((n) => n.pitch))].sort((a, b) => a - b);
+      if (!L.length || !R.length) continue;
+      const key = `${L.join(',')}|${R.join(',')}`;
+      if (!combos.has(key)) combos.set(key, { lo: L, hi: R, songs: new Set() });
+      combos.get(key)!.songs.add(song.title);
+    }
+  }
+  const bad: string[] = [];
+  for (const { lo, hi, songs } of combos.values()) {
+    const all = [...lo, ...hi];
+    for (const [what, play, want] of [
+      ['обе', all, true],
+      ['только левая', lo, false],
+      ['только правая', hi, false],
+    ] as const) {
+      const sig = render(1.2, []);
+      play.forEach((m, j) => strike(sig, 0.2 + j * 0.01, m, 0.2, 1.2, 700 + m + j, m < 60 ? 0.25 : undefined));
+      const ev = run(sig, (a) => a.setExpected(all));
+      const c = ev.filter((e): e is CheckEvent => e.type === 'check')[0];
+      const got = c ? c.allPassed : null;
+      if (got !== want) {
+        const why = c ? c.notes.map((n) => `${midiToName(n.midi)}:${n.passed ? 'ok' : n.evidence?.verdict}`).join(',') : 'нет вердикта';
+        bad.push(`${all.map(midiToName).join('+')} ${what} → ${got === null ? '—' : got ? '✓' : '✗'} (${why}) [${[...songs][0]}]`);
+      }
+    }
+  }
+  expect(`Все песни: ${combos.size} сочетаний рук × (обе / только левая / только правая)`, bad.length === 0, bad.join('; '));
 }
 
 // 4. Затухающая нота не засчитывается повторно; новый удар той же ноты — засчитывается
