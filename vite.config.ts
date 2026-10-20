@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import { execSync } from 'node:child_process';
 
@@ -23,10 +23,33 @@ const buildIdMeta = {
   transformIndexHtml: (html: string) => html.replace('</head>', `  <meta name="build-id" content="${BUILD_ID}" />\n  </head>`),
 };
 
+/**
+ * Стили встраиваются прямо в index.html. Отдельный .css однажды не загрузился в WebView Telegram —
+ * приложение работало, но без вёрстки. Стилей ~8 КБ, отдельный запрос не нужен.
+ */
+const inlineCss: Plugin = {
+  name: 'inline-css',
+  apply: 'build',
+  enforce: 'post',
+  generateBundle(_options, bundle) {
+    const html = Object.values(bundle).find((f) => f.type === 'asset' && f.fileName.endsWith('.html'));
+    if (!html || html.type !== 'asset') return;
+    for (const [name, file] of Object.entries(bundle)) {
+      if (file.type !== 'asset' || !name.endsWith('.css')) continue;
+      const base = name.split('/').pop()!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const link = new RegExp(`<link[^>]*href="[^"]*${base}"[^>]*>`);
+      const src = String(html.source);
+      if (!link.test(src)) continue;
+      html.source = src.replace(link, () => `<style>${String(file.source)}</style>`);
+      delete bundle[name];
+    }
+  },
+};
+
 export default defineConfig(({ mode }) => ({
   base: './',
   define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
-  plugins: [buildIdMeta, ...(mode === 'https' ? [basicSsl()] : [])],
+  plugins: [buildIdMeta, inlineCss, ...(mode === 'https' ? [basicSsl()] : [])],
   server: {
     host: true,
     allowedHosts: true, // чтобы работали адреса туннелей *.trycloudflare.com / *.ngrok-free.app
