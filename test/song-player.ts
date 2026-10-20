@@ -66,12 +66,11 @@ const song: Song = {
   expect('В такт: ждёт сколько угодно, позиция не двигается', p.waiting && Math.abs(p.beat - 1.18) < 1e-9);
   expect('В такт: D4 после остановки — «поздно», песня пошла', p.judge(true, 105.0, 105.1) === 'late' && p.lates === 1 && p.hits === 1 && !p.waiting && p.expected().join() === '48,52');
   p.tick(105.1);
-  expect('В такт: продолжение с того же места', Math.abs(p.beat - 1.18) < 1e-9, `beat=${p.beat}`);
-  // Сетка сдвинута на паузу (105.1 − 103.18 = 1.92 с): доля аккорда теперь 104 + 1.92
-  expect('В такт: доля аккорда сдвинута на длительность паузы', Math.abs(p.stepTime(p.current!)! - 105.92) < 1e-9, `t=${p.stepTime(p.current!)}`);
-  expect('В такт: аккорд вовремя (−100 мс)', p.judge(true, 105.82, 105.9) === 'hit' && p.finished && p.hits === 2);
+  // Ритм от удара: D4 (доля 1) сыграна в 105.0 → аккорд (доля 2) ждём ровно через 1 долю, в 106.0
+  expect('В такт: после «поздно» ритм идёт от удара', Math.abs(p.stepTime(p.current!)! - 106) < 1e-9 && Math.abs(p.beat - 1.1) < 1e-9, `t=${p.stepTime(p.current!)} beat=${p.beat}`);
+  expect('В такт: аккорд через долю после удара (−100 мс) — вовремя', p.judge(true, 105.9, 105.95) === 'hit' && p.finished && p.hits === 2);
   p.tick(110);
-  expect('В такт: время игры без паузы', Math.abs(p.elapsedSec - (105.9 - 100 - 1.92 - 2)) < 1e-6, `elapsed=${p.elapsedSec}`);
+  expect('В такт: время игры без пауз', Math.abs(p.elapsedSec - (105.9 - 102 - 2)) < 1e-6, `elapsed=${p.elapsedSec}`);
   p.restart();
   expect('В такт: сначала — часы сброшены', p.stepTime(p.current!) === null && p.lates === 0 && !p.waiting);
 }
@@ -99,6 +98,22 @@ const song: Song = {
   });
   const sh = q.suggestLatencyShift();
   expect('Подсказка задержки: медиана ≈ +130 мс (одно долгое ожидание не в счёт)', sh !== null && Math.abs(sh - 0.13) < 0.006, `shift=${sh}`);
+}
+
+{
+  const notes = Array.from({ length: 10 }, (_, i) => ({ pitch: 60 + (i % 2) * 2, name: 'x', start: i, dur: 1, hand: 'R' as const, finger: 1 }));
+  const p = new SongPlayer({ id: 'c', title: 'c', bpm: 90, notes }, 'tempo', 0, { earlySec: 0.18, lateSec: 0.18, latencySec: 0 });
+  p.tick(0);
+  // Человек опоздал на первую ноту на 0.3 с, дальше играет ровно в темп от своего удара
+  const spb = 60 / 90;
+  const js: string[] = [];
+  for (let i = 0; i < 10; i++) {
+    const t = 0.3 + i * spb;
+    p.tick(t - 0.001);
+    js.push(p.judge(true, t, t + 0.06));
+    p.tick(t + 0.06);
+  }
+  expect('В такт: ровная игра после опоздания — «поздно» только один раз', js.filter((j) => j === 'late').length === 1 && js.slice(1).every((j) => j === 'hit'), js.join(' '));
 }
 
 for (const s of SONGS) {

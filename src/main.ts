@@ -717,6 +717,8 @@ function render(): void {
     } else lastAudioT = null;
     falling.draw(player, t ?? performance.now() / 1000, playMode);
   }
+  // Экраны выбора и «Готово!» — клавиатура не нужна и закрывает кнопки
+  appEl.classList.toggle('song-overlay', mode === 'song' && (picker.visible || !songDone.classList.contains('hidden')));
   const f = latestFrame;
   if (f && f !== drawnFrame) {
     drawnFrame = f;

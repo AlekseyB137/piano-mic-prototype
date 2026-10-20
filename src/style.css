@@ -250,10 +250,11 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
 .song-status { font-size: 13px; color: var(--text-dim); text-shadow: 0 1px 2px #000; }
 .song-status b { color: var(--text); }
 .song-done {
-  position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px;
-  align-items: center; justify-content: center; text-align: center;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  font-size: 16px;
+  position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; gap: 8px;
+  align-items: center; justify-content: safe center; text-align: center;
+  padding: 8px 12px; overflow-y: auto;
+  background: color-mix(in srgb, var(--bg) 96%, transparent);
+  font-size: 15px;
 }
 .song-done strong { font-size: 24px; }
 
@@ -277,3 +278,6 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
 .tile-best { font-size: 12px; color: var(--success); margin-top: auto; }
 
 .small-seg button { min-height: 28px; padding: 3px 10px; font-size: 12px; }
+
+/* На экранах выбора мелодии и «Готово!» клавиатура скрыта — освобождает место для кнопок */
+#app.song-overlay > #keyboard { display: none; }
