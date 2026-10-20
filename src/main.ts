@@ -27,7 +27,7 @@ const LS_PLAY_MODE = 'pianoMic.playMode';
 const LS_LATENCY = 'pianoMic.latency';
 const LS_TEMPO = 'pianoMic.tempo';
 /** Доступные множители темпа. */
-const TEMPOS = [0.5, 0.6, 0.7, 0.8, 0.9, 1];
+const TEMPOS = [0.5, 0.75, 1];
 function load<T>(key: string, fallback: T): T {
   try {
     const v = localStorage.getItem(key);
@@ -359,17 +359,20 @@ playModeButtons.forEach((b) =>
 );
 showPlayMode();
 
-// Темп: − / +
-const tempoLabel = $('#song-tempo-label');
+// Темп: 50% | 75% | 100%
+const tempoButtons = document.querySelectorAll<HTMLButtonElement>('#song-tempo button[data-tempo]');
 function showTempo(): void {
-  tempoLabel.textContent = `${Math.round(tempoFactor * 100)}%`;
-  tempoLabel.title = `♩ = ${Math.round(SONGS[songIdx].bpm * tempoFactor)}`;
+  tempoButtons.forEach((b) => {
+    const f = Number(b.dataset.tempo);
+    b.classList.toggle('active', f === tempoFactor);
+    b.title = `♩ = ${Math.round(SONGS[songIdx].bpm * f)}`;
+  });
 }
-document.querySelectorAll<HTMLButtonElement>('#song-tempo button[data-tempo]').forEach((b) =>
+tempoButtons.forEach((b) =>
   b.addEventListener('click', () => {
-    const i = TEMPOS.indexOf(tempoFactor) + Number(b.dataset.tempo);
-    if (i < 0 || i >= TEMPOS.length) return;
-    tempoFactor = TEMPOS[i];
+    const f = Number(b.dataset.tempo);
+    if (f === tempoFactor) return;
+    tempoFactor = f;
     save(LS_TEMPO, { f: tempoFactor });
     showTempo();
     restartSong();
