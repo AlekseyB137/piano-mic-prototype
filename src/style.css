@@ -103,17 +103,38 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
 .message.info { background: #1b2a3d; border-color: var(--accent); }
 .message span { flex: 1; }
 
+/* Только горизонтально (решение пользователя): вертикально — затемнение, стрелка и «Поверните экран» */
 .rotate-hint {
   display: none;
-  margin: 6px 10px 0;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: var(--surface-2);
-  color: var(--text-dim);
-  font-size: 12px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100dvh;
+  z-index: 1000;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  background: rgba(8, 9, 12, 0.94);
+  color: var(--text);
   text-align: center;
+  touch-action: none;
 }
-@media (orientation: portrait) { .rotate-hint { display: block; } }
+@media (orientation: portrait) {
+  .rotate-hint { display: flex; }
+  html, body { overflow: hidden; }
+}
+.rotate-text { font-size: 24px; font-weight: 800; }
+.rotate-sub { font-size: 14px; color: var(--text-dim); max-width: 300px; }
+.rotate-phone { transform-origin: 60px 55px; animation: rotate-phone 2.4s ease-in-out infinite; }
+@keyframes rotate-phone {
+  0%, 20% { transform: rotate(0deg); }
+  55%, 85% { transform: rotate(-90deg); }
+  100% { transform: rotate(0deg); }
+}
+@media (prefers-reduced-motion: reduce) { .rotate-phone { animation: none; } }
 
 .stage {
   position: relative;

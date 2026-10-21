@@ -23,7 +23,6 @@
         <button id="btn-debug">Отладка</button>
       </header>
       <div id="message" class="message hidden"></div>
-      <div id="rotate-hint" class="rotate-hint">Поверните телефон горизонтально — клавиши будут крупнее</div>
       <main class="stage">
         <section id="readout" class="readout"></section>
         <section class="log">
@@ -57,5 +56,18 @@
       <div id="keyboard"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
+    <!-- Только горизонтально: вертикально экран затемняется (повернуть сам браузер на iOS не даёт) -->
+    <div id="rotate-hint" class="rotate-hint" aria-live="polite">
+      <svg class="rotate-icon" viewBox="0 0 120 120" width="120" height="120" aria-hidden="true">
+        <g class="rotate-phone">
+          <rect x="42" y="22" width="36" height="66" rx="7" fill="none" stroke="currentColor" stroke-width="5" />
+          <line x1="54" y1="80" x2="66" y2="80" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+        </g>
+        <path d="M 30 96 A 46 46 0 0 1 22 44" fill="none" stroke="var(--warn)" stroke-width="5" stroke-linecap="round" />
+        <path d="M 12 52 L 22 40 L 32 52" fill="none" stroke="var(--warn)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      <div class="rotate-text">Поверните экран</div>
+      <div class="rotate-sub">Приложение работает только горизонтально</div>
+    </div>
   </body>
 </html>
