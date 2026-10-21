@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DOMParser } from '@xmldom/xmldom';
 import { importScoreFile } from '../src/import/musicxml';
+import { IMPORT_LIMITS } from '../src/import/common';
 import type { Song } from '../src/song/types';
 
 let pass = 0, fail = 0;
@@ -111,6 +112,46 @@ for (const [name, data] of [
     err = (e as Error).message;
   }
   expect(`Ошибка с понятным текстом: ${name}`, err.length > 0, 'ошибки нет');
+}
+
+// Ограничения
+const errOf = async (name: string, data: ArrayBuffer) => {
+  try {
+    await importScoreFile(name, data, parse);
+    return '';
+  } catch (e) {
+    return (e as Error).message;
+  }
+};
+{
+  const big = new Uint8Array(IMPORT_LIMITS.fileBytes + 1).buffer;
+  const e = await errOf('big.mxl', big);
+  expect('Файл больше 5 МБ — отказ с размером', e.includes('слишком большой') && e.includes('5.0 МБ'), e);
+}
+{
+  // .mxl, где в оглавлении заявлено 30 МБ после распаковки (zip-бомба)
+  const b = new Uint8Array(fx('twinkle-2h.mxl').slice(0));
+  const v = new DataView(b.buffer);
+  for (let i = b.length - 22; i >= 0; i--) {
+    if (v.getUint32(i, true) === 0x06054b50) {
+      const cd = v.getUint32(i + 16, true);
+      v.setUint32(cd + 24, 30 * 1024 * 1024, true);
+      break;
+    }
+  }
+  const e = await errOf('bomb.mxl', b.buffer);
+  expect('.mxl с заявленными 30 МБ после распаковки — отказ', e.includes('распаковывается'), e);
+}
+{
+  // .mxl лжёт в оглавлении (1 КБ), а распаковывается в 25 МБ — должен прерваться по счётчику
+  const e = await errOf('bomb-lying.mxl', fx('bomb-lying.mxl'));
+  expect('.mxl, лгущий о размере, — распаковка прервана', e.includes('распаковывается'), e);
+}
+{
+  const notes = Array.from({ length: IMPORT_LIMITS.notes + 1 }, () => '<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>').join('');
+  const xml = `<?xml version="1.0"?><score-partwise><part-list/><part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes>${notes}</measure></part></score-partwise>`;
+  const e = await errOf('many.xml', new TextEncoder().encode(xml).buffer);
+  expect('Больше 5000 нот — отказ с числом нот', e.includes('слишком много нот') && e.includes(String(IMPORT_LIMITS.notes + 1)), e);
 }
 
 console.log(`\nИтого: ${pass} ✓, ${fail} ✗`);

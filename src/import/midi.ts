@@ -9,7 +9,7 @@
  */
 import type { Song, SongNote } from '../song/types';
 import { midiToName } from '../audio/notes';
-import { autoFingering, hashId, type ImportResult } from './common';
+import { autoFingering, checkNoteLimit, hashId, type ImportResult } from './common';
 
 /** Начала нот ближе этого (в долях) — один аккорд (живая запись не бывает идеально одновременной). */
 const CHORD_EPS_BEATS = 0.06;
@@ -113,6 +113,7 @@ export function parseMidi(bytes: Uint8Array, fallbackTitle: string): ImportResul
     r.p = end;
   }
   if (!notes.length) throw new Error('в файле MIDI нет нот');
+  checkNoteLimit(notes.length);
 
   // Темп
   const uniq = [...new Set(tempos)];

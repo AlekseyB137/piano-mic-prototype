@@ -1,6 +1,27 @@
 /** Общее для импорта MusicXML и MIDI. */
 import type { Song, SongNote } from '../song/types';
 
+/** Ограничения импорта своих нот. */
+export const IMPORT_LIMITS = {
+  /** Размер загружаемого файла. Обычные .mxl — 10–300 КБ, .musicxml — до 1–3 МБ, MIDI — 5–100 КБ. */
+  fileBytes: 5 * 1024 * 1024,
+  /** Сколько может занять .mxl после распаковки (защита от zip-бомбы). */
+  unzippedBytes: 20 * 1024 * 1024,
+  /** Нот в мелодии (несколько страниц плотной фортепианной музыки; от числа нот зависит оплата). */
+  notes: 5000,
+};
+
+export function mb(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} МБ`;
+}
+
+/** Проверки, общие для MusicXML и MIDI. */
+export function checkNoteLimit(count: number): void {
+  if (count > IMPORT_LIMITS.notes) {
+    throw new Error(`слишком много нот (${count}, допустимо до ${IMPORT_LIMITS.notes}) — загрузите фрагмент пьесы`);
+  }
+}
+
 export interface ImportResult {
   song: Song;
   warnings: string[];

@@ -14,6 +14,7 @@ import { DEFAULT_WINDOW, SongPlayer, type PlayMode } from './song/player';
 import { SONGS } from './songs';
 import { SongPicker, type BestResult } from './ui/song-picker';
 import { importScoreFile } from './import/musicxml';
+import { IMPORT_LIMITS, mb } from './import/common';
 import type { Song } from './song/types';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
@@ -350,6 +351,12 @@ function saveUserSongs(): boolean {
 }
 
 picker.onImport = async (file) => {
+  // Размер — до чтения: огромный файл даже не загружаем в память
+  if (file.size > IMPORT_LIMITS.fileBytes) {
+    picker.setNote(`Не удалось загрузить «${file.name}»: файл слишком большой (${mb(file.size)}, допустимо до ${mb(IMPORT_LIMITS.fileBytes)})`, 'error');
+    picker.show(songIdx);
+    return;
+  }
   try {
     const { song, warnings } = await importScoreFile(file.name, await file.arrayBuffer(), (s) =>
       new DOMParser().parseFromString(s, 'application/xml'),

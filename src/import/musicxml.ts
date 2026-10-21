@@ -12,7 +12,7 @@
 import type { Song, SongNote } from '../song/types';
 import { midiToName } from '../audio/notes';
 import { parseMidi } from './midi';
-import { autoFingering, hashId, type ImportResult } from './common';
+import { autoFingering, checkNoteLimit, hashId, IMPORT_LIMITS, mb, type ImportResult } from './common';
 
 export type { ImportResult } from './common';
 
@@ -27,10 +27,28 @@ function u32(b: Uint8Array, o: number): number {
   return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
 }
 
-async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
-  const ds = new DecompressionStream('deflate-raw');
-  const out = new Response(new Blob([data.slice()]).stream().pipeThrough(ds));
-  return new Uint8Array(await out.arrayBuffer());
+/** Распаковка с пределом: заявленному в архиве размеру не доверяем — считаем байты на ходу. */
+async function inflateRaw(data: Uint8Array, limit: number): Promise<Uint8Array> {
+  const reader = new Blob([data.slice()]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > limit) {
+      await reader.cancel();
+      throw new Error(`файл .mxl распаковывается больше чем в ${mb(IMPORT_LIMITS.unzippedBytes)} — это не похоже на ноты`);
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let p = 0;
+  for (const c of chunks) {
+    out.set(c, p);
+    p += c.length;
+  }
+  return out;
 }
 
 /** Минимальное чтение zip: центральный каталог → файлы (stored / deflate). */
@@ -46,10 +64,13 @@ async function unzip(buf: Uint8Array): Promise<Map<string, Uint8Array>> {
   const count = u16(buf, eocd + 10);
   let p = u32(buf, eocd + 16);
   const files = new Map<string, Uint8Array>();
+  let budget = IMPORT_LIMITS.unzippedBytes;
   for (let k = 0; k < count; k++) {
     if (u32(buf, p) !== 0x02014b50) break;
     const method = u16(buf, p + 10);
     const csize = u32(buf, p + 20);
+    const usize = u32(buf, p + 24);
+    if (usize > budget) throw new Error(`файл .mxl распаковывается больше чем в ${mb(IMPORT_LIMITS.unzippedBytes)} — это не похоже на ноты`);
     const nameLen = u16(buf, p + 28);
     const extraLen = u16(buf, p + 30);
     const commentLen = u16(buf, p + 32);
@@ -60,7 +81,8 @@ async function unzip(buf: Uint8Array): Promise<Map<string, Uint8Array>> {
     const start = local + 30 + lName + lExtra;
     const raw = buf.subarray(start, start + csize);
     if (method === 0) files.set(name, raw);
-    else if (method === 8) files.set(name, await inflateRaw(raw));
+    else if (method === 8) files.set(name, await inflateRaw(raw, budget));
+    budget -= files.get(name)?.length ?? 0;
     p += 46 + nameLen + extraLen + commentLen;
   }
   return files;
@@ -273,6 +295,7 @@ export function parseMusicXml(doc: Document, fallbackTitle: string): ImportResul
     offset += measureLen;
   }
   if (!notes.length) throw new Error('в файле нет нот');
+  checkNoteLimit(notes.length);
 
   const first = Math.min(...notes.map((n) => n.start));
   for (const n of notes) n.start = +(n.start - first).toFixed(4);
@@ -299,6 +322,9 @@ export function parseMusicXml(doc: Document, fallbackTitle: string): ImportResul
 
 /** Файл нот → песня: распаковывает .mxl, разбирает MusicXML. */
 export async function importScoreFile(fileName: string, data: ArrayBuffer, parse: XmlParser): Promise<ImportResult> {
+  if (data.byteLength > IMPORT_LIMITS.fileBytes) {
+    throw new Error(`файл слишком большой (${mb(data.byteLength)}, допустимо до ${mb(IMPORT_LIMITS.fileBytes)})`);
+  }
   const bytes = new Uint8Array(data);
   let xml: string;
   if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
