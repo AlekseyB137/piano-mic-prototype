@@ -12,7 +12,8 @@
     "test:song": "npx --yes tsx test/song-player.ts",
     "test:convert": "tools/.venv/bin/python tools/test_musicxml2json.py",
     "test:import": "npx --yes tsx test/import-musicxml.ts",
-    "test": "npm run test:song && npm run test:import && npm run test:synth && npm run test:convert"
+    "test": "npm run test:song && npm run test:import && npm run test:sync && npm run test:synth && npm run test:convert",
+    "test:sync": "npx --yes tsx test/user-data.ts"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.3.0",

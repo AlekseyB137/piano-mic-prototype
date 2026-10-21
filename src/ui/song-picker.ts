@@ -26,6 +26,8 @@ export class SongPicker {
   onImport: (file: File) => void = () => {};
   /** Удалить свою мелодию (по id). */
   onDelete: (id: string) => void = () => {};
+  /** Где хранятся свои ноты: есть ли облако Telegram и какие мелодии не поместились в него. */
+  storage: () => { cloud: boolean; localOnly: Set<string> } = () => ({ cloud: false, localOnly: new Set() });
   private note = '';
   private noteKind: 'info' | 'error' = 'info';
 
@@ -76,7 +78,8 @@ export class SongPicker {
         tile.classList.add('user');
         const mine = document.createElement('span');
         mine.className = 'tile-mine';
-        mine.textContent = 'Мои ноты · только на этом телефоне';
+        const st = this.storage();
+        mine.textContent = st.cloud && !st.localOnly.has(s.id) ? 'Мои ноты · на всех ваших устройствах' : 'Мои ноты · только на этом устройстве';
         const del = document.createElement('span');
         del.className = 'tile-del';
         del.setAttribute('role', 'button');
@@ -93,7 +96,7 @@ export class SongPicker {
       grid.appendChild(tile);
     });
 
-    // Загрузка своих нот (MusicXML): файл разбирается и хранится только на этом телефоне
+    // Загрузка своих нот (MusicXML / MIDI): видны только пользователю; в Telegram — на всех его устройствах
     const add = document.createElement('label');
     add.className = 'tile tile-add';
     const addName = document.createElement('span');
@@ -101,7 +104,9 @@ export class SongPicker {
     addName.textContent = '＋ Загрузить свои ноты';
     const addMeta = document.createElement('span');
     addMeta.className = 'tile-meta';
-    addMeta.textContent = 'MusicXML (.mxl, .musicxml) или MIDI (.mid), до 5 МБ и 5000 нот. Хранится только на этом телефоне.';
+    addMeta.textContent = `MusicXML (.mxl, .musicxml) или MIDI (.mid), до 5 МБ и 5000 нот. ${
+      this.storage().cloud ? 'Видны только вам, на всех ваших устройствах в Telegram.' : 'Вне Telegram хранятся только на этом устройстве.'
+    }`;
     const input = document.createElement('input');
     input.type = 'file'; // без accept: iOS иначе может не дать выбрать .mxl
     input.hidden = true;
