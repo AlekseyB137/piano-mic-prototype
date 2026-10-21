@@ -1,4 +1,4 @@
-import type { Song } from '../song/types';
+import { noteCount, type Song } from '../song/types';
 
 export interface BestResult {
   mistakes: number;
@@ -14,27 +14,9 @@ function handsText(s: Song): string {
   return h.has('L') ? 'Левая рука' : 'Правая рука';
 }
 
-function plural(n: number, one: string, few: string, many: string): string {
-  const m10 = n % 10, m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return one;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-  return many;
-}
-
-/** «30 нот» или «4 аккорда» — по тому, чего в песне больше. */
-function stepsText(s: Song): string {
-  const byStart = new Map<number, number>();
-  for (const n of s.notes) {
-    const k = Math.round(n.start * 1000);
-    byStart.set(k, (byStart.get(k) ?? 0) + 1);
-  }
-  const steps = byStart.size;
-  const chords = [...byStart.values()].filter((c) => c > 1).length;
-  // Только аккорды — «N аккордов»; иначе считаем все ноты (двумя руками: мелодия + бас)
-  const n = s.notes.length;
-  return chords === steps
-    ? `${steps} ${plural(steps, 'аккорд', 'аккорда', 'аккордов')}`
-    : `${n} ${plural(n, 'нота', 'ноты', 'нот')}`;
+/** «Нот: 66» — общее количество нот (основа будущей оплаты). */
+function notesText(s: Song): string {
+  return `Нот: ${noteCount(s)}`;
 }
 
 /** Экран выбора мелодии: плитки вместо выпадающего меню + загрузка своих нот. */
@@ -77,7 +59,10 @@ export class SongPicker {
       name.textContent = s.title;
       const meta = document.createElement('span');
       meta.className = 'tile-meta';
-      meta.textContent = `${handsText(s)} · ${stepsText(s)} · ♩\u00a0=\u00a0${s.bpm}`;
+      meta.textContent = `${handsText(s)} · ♩\u00a0=\u00a0${s.bpm}`;
+      const count = document.createElement('span');
+      count.className = 'tile-count';
+      count.textContent = notesText(s);
       const res = document.createElement('span');
       res.className = 'tile-best';
       const b = this.best(s.id);
@@ -86,7 +71,7 @@ export class SongPicker {
         : b.hits !== undefined && b.total
           ? `Лучший результат: вовремя ${b.hits} из ${b.total}`
           : `Лучший результат: ${b.mistakes === 0 ? 'без ошибок' : `ошибок ${b.mistakes}`}`;
-      tile.append(name, meta);
+      tile.append(name, meta, count);
       if (s.user) {
         tile.classList.add('user');
         const mine = document.createElement('span');
