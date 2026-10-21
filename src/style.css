@@ -117,14 +117,15 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
   justify-content: center;
   gap: 14px;
   padding: 24px;
-  background: rgba(8, 9, 12, 0.94);
+  background: #000; /* сплошной чёрный: интерфейс под заглушкой не просвечивает */
   color: var(--text);
   text-align: center;
   touch-action: none;
 }
 @media (orientation: portrait) {
   .rotate-hint { display: flex; }
-  html, body { overflow: hidden; }
+  html, body { overflow: hidden; background: #000; }
+  #app { visibility: hidden; }
 }
 .rotate-text { font-size: 24px; font-weight: 800; }
 .rotate-sub { font-size: 14px; color: var(--text-dim); max-width: 300px; }
