@@ -50,11 +50,12 @@ const song: Song = {
   expect('Аккорд ждёт на линии', p.waiting && p.beat === 2);
   p.result(true);
   expect('Песня закончена', p.finished && p.expected().length === 0);
+  expect('Сыграно нот: 4 (каждая нота аккорда отдельно), ошибки не считаются', p.playedNotes === 4, `played=${p.playedNotes}`);
   const t = p.elapsedSec;
   p.advance(1);
   expect('После конца время игры не растёт, ноты уезжают', p.elapsedSec === t && p.beat > 2);
   p.restart();
-  expect('Сначала: всё сброшено', p.beat === -2 && p.hits === 0 && p.mistakes === 0 && p.expected().join() === '60');
+  expect('Сначала: всё сброшено', p.beat === -2 && p.hits === 0 && p.playedNotes === 0 && p.mistakes === 0 && p.expected().join() === '60');
 }
 
 // «В такт»: 60 bpm, вступление 2 доли → доля шага k (start=k) наступает в t0 + 2 + k с

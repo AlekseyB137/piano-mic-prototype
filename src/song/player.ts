@@ -66,6 +66,8 @@ export class SongPlayer {
   lates = 0;
   /** Нажатия раньше окна («В такт») — не засчитаны и не ошибки. */
   earlies = 0;
+  /** Сыгранные (засчитанные) ноты за эту игру — каждая нота аккорда отдельно; основа оплаты. */
+  playedNotes = 0;
   /** Время игры, с. */
   elapsedSec = 0;
   /** Последнее отклонение попадания от доли, с («В такт»). */
@@ -262,7 +264,7 @@ export class SongPlayer {
     this.idx = 0;
     this.beat = this.displayBeat = -this.leadInBeats;
     this.waiting = false;
-    this.hits = this.mistakes = this.lates = this.earlies = 0;
+    this.hits = this.mistakes = this.lates = this.earlies = this.playedNotes = 0;
     this.lastTickAt = null;
     this.elapsedSec = 0;
     this.lastOffsetSec = null;
@@ -279,6 +281,7 @@ export class SongPlayer {
   private complete(cur: Step): void {
     cur.state = 'done';
     this.hits++;
+    this.playedNotes += cur.notes.length;
     this.idx++;
     this.waiting = false;
     this.markCurrent();

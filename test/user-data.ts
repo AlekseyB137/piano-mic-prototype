@@ -158,5 +158,29 @@ const localB = new MemoryLocal();
   expect('Без облака: локально, без ошибок', !r.cloud && A.songs.length === 1 && A.syncError === '');
 }
 
+// 9. Сыгранные ноты (основа оплаты): суммируются по устройствам, не теряются и не удваиваются
+{
+  const cloud3 = new MemoryKV();
+  const la = new MemoryLocal(), lb = new MemoryLocal();
+  const A = new UserData(la, cloud3, defaults, now);
+  const B = new UserData(lb, cloud3, defaults, now);
+  A.addPlayed(30);
+  B.addPlayed(12);
+  await A.pushPlayed();
+  await B.pushPlayed();
+  await A.sync();
+  await B.sync();
+  await A.sync(); // повторная сверка не удваивает
+  expect('Ноты с двух устройств сложились: 30 + 12 = 42', A.playedTotal === 42 && B.playedTotal === 42, `A=${A.playedTotal} B=${B.playedTotal}`);
+  A.addPlayed(8); // сыграно без сети — дойдёт при следующей сверке
+  const A2 = new UserData(la, cloud3, defaults, now); // перезапуск приложения
+  await A2.sync();
+  await B.sync();
+  expect('После перезапуска счётчик сохранился и дошёл до другого устройства', A2.playedTotal === 50 && B.playedTotal === 50 && A2.deviceId === A.deviceId, `A2=${A2.playedTotal} B=${B.playedTotal}`);
+  const C = new UserData(new MemoryLocal(), cloud3, defaults, now); // новое устройство / очищенный телефон
+  await C.sync();
+  expect('Новое устройство видит общий итог', C.playedTotal === 50 && C.deviceId !== A.deviceId, `C=${C.playedTotal}`);
+}
+
 console.log(`\nИтого: ${pass} ✓, ${fail} ✗`);
 process.exit(fail ? 1 : 0);

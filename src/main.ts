@@ -469,7 +469,11 @@ const syncNow = () =>
 syncNow();
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') syncNow();
+  else void userData.pushPlayed(); // свернули / закрыли — счётчик нот в облако
 });
+// Счётчик сыгранных нот — в облако раз в 30 с (только если менялся)
+window.setInterval(() => void userData.pushPlayed(), 30_000);
+picker.played = () => userData.playedTotal;
 
 function fmtTime(sec: number): string {
   const s = Math.round(sec);
@@ -521,7 +525,10 @@ function showSongDone(): void {
   const best = document.createElement('div');
   best.className = 'tile-best';
   best.textContent = isBest && prev ? 'Новый лучший результат!' : '';
-  songDone.append(title, stats, best);
+  const played = document.createElement('div');
+  played.textContent = `Сыграно нот: ${player.playedNotes} · всего: ${userData.playedTotal}`;
+  void userData.pushPlayed();
+  songDone.append(title, stats, played, best);
   // Подстройка поправки ритма: среднее (медиана) отклонение заметно не ноль
   const shift = playMode === 'tempo' ? player.suggestLatencyShift() : null;
   if (shift !== null && Math.abs(shift) > 0.025) {
@@ -557,6 +564,8 @@ const JUDGE_TEXT = { hit: 'вовремя', early: 'рано (не засчит�
 
 /** Шаг сыгран: нота «уходит в клавишу», клавиша вспыхивает зелёным. */
 function songStepDone(stepIndex: number, midis: number[], now: number): void {
+  // Засчитанные ноты шага (каждая нота аккорда отдельно) — основа оплаты; «рано» и ошибки не считаются
+  userData.addPlayed(player.steps[stepIndex]?.notes.length ?? 0);
   falling.sink(stepIndex, now);
   for (const m of midis) keyboard.mark(m, 'pass', true);
   window.setTimeout(() => {

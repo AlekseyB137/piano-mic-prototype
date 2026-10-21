@@ -10,7 +10,9 @@
  *  - мелодии: объединение по id; удаление помечается в облачном индексе (deleted), чтобы другое устройство
  *    не «воскресило» мелодию из своей локальной копии;
  *  - лучшие результаты: по каждому ключу побеждает лучший (коммутативно, порядок синхронизации не важен);
- *  - настройки: побеждает более позднее изменение (updatedAt).
+ *  - настройки: побеждает более позднее изменение (updatedAt);
+ *  - сыгранные ноты (основа оплаты): у каждого устройства свой счётчик, растёт только на нём самом;
+ *    слияние — максимум по каждому устройству, итог — сумма (ноты не теряются и не считаются дважды).
  *  - лимиты Telegram: значение ≤ 4096 символов (мелодии и большие записи режутся на куски), ≤ 1024 ключа;
  *    если места нет — мелодия остаётся только на устройстве (localOnly) с предупреждением.
  */
@@ -42,8 +44,10 @@ const L = {
   prefs: 'pianoMic.prefs',
   deleted: 'pianoMic.deleted',
   localOnly: 'pianoMic.localOnly',
+  played: 'pianoMic.played',
+  device: 'pianoMic.deviceId',
 };
-const C = { index: 'v1_index', best: 'v1_best', prefs: 'v1_prefs', song: (id: string) => `v1_s_${id}` };
+const C = { index: 'v1_index', best: 'v1_best', prefs: 'v1_prefs', played: 'v1_played', song: (id: string) => `v1_s_${id}` };
 /** Кусок значения (с запасом до 4096). */
 const CHUNK = 4000;
 /** Сколько ключей оставляем в запасе (индекс, результаты, настройки и их рост). */
@@ -97,6 +101,13 @@ export function isBetter(a: BestResult, b: BestResult): boolean {
   return a.seconds < b.seconds;
 }
 
+/** Счётчики сыгранных нот по устройствам: каждое устройство растит только свой — берём максимум. */
+function mergePlayed(x: Record<string, number>, y: Record<string, number>): Record<string, number> {
+  const out = { ...x };
+  for (const [k, v] of Object.entries(y)) if (!(out[k] >= v)) out[k] = v;
+  return out;
+}
+
 function mergeBest(x: Record<string, BestResult>, y: Record<string, BestResult>): Record<string, BestResult> {
   const out = { ...x };
   for (const [k, v] of Object.entries(y)) if (!out[k] || isBetter(v, out[k])) out[k] = v;
@@ -148,6 +159,10 @@ export class UserData {
   /** Последняя ошибка синхронизации (для отображения), пусто — всё хорошо. */
   syncError = '';
   onChange: () => void = () => {};
+  /** Сыгранные ноты по устройствам (id устройства → нот). */
+  private played: Record<string, number> = {};
+  private playedDirty = false;
+  readonly deviceId: string;
   private deleted = new Set<string>();
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -159,6 +174,54 @@ export class UserData {
   ) {
     this.prefs = { ...defaults, updatedAt: 0 };
     this.loadLocal();
+    let dev = this.local.get(L.device);
+    if (!dev || !/^[a-z0-9]{6,32}$/.test(dev)) {
+      dev = (this.now().toString(36) + Math.random().toString(36).slice(2, 10)).slice(0, 20);
+      try {
+        this.local.set(L.device, dev);
+      } catch {
+        // нет места — id будет новым при следующем запуске, ноты всё равно не потеряются
+      }
+    }
+    this.deviceId = dev;
+  }
+
+  /** Всего сыграно нот на всех устройствах пользователя. */
+  get playedTotal(): number {
+    return Object.values(this.played).reduce((a, b) => a + b, 0);
+  }
+
+  /** Засчитать сыгранные ноты (каждая нота аккорда — отдельно). В облако — через pushPlayed / sync. */
+  addPlayed(n: number): void {
+    if (!(n > 0)) return;
+    this.played = { ...this.played, [this.deviceId]: (this.played[this.deviceId] ?? 0) + n };
+    this.playedDirty = true;
+    this.saveLocal();
+  }
+
+  /** Отправить счётчик сыгранных нот в облако (если менялся). */
+  pushPlayed(): Promise<void> {
+    const kv = this.cloud;
+    if (!kv || !this.playedDirty) return Promise.resolve();
+    return this.enqueue(async () => void (await this.mergePlayedCloud(kv)));
+  }
+
+  private async mergePlayedCloud(kv: KV): Promise<boolean> {
+    try {
+      this.playedDirty = false;
+      const t = await readBlob(kv, C.played);
+      const cloudPlayed = t ? (JSON.parse(t) as Record<string, number>) : {};
+      const merged = mergePlayed(cloudPlayed, this.played);
+      if (JSON.stringify(merged) !== JSON.stringify(cloudPlayed)) await writeBlob(kv, C.played, JSON.stringify(merged));
+      const changed = JSON.stringify(merged) !== JSON.stringify(this.played);
+      this.played = mergePlayed(merged, this.played); // ноты, сыгранные во время записи, не теряем
+      this.saveLocal();
+      return changed;
+    } catch (e) {
+      this.playedDirty = true;
+      this.syncError = e instanceof Error ? e.message : String(e);
+      return false;
+    }
   }
 
   private json<T>(key: string, fallback: T): T {
@@ -177,6 +240,8 @@ export class UserData {
     this.prefs = { ...this.prefs, ...this.json<Partial<Prefs>>(L.prefs, {}) };
     this.deleted = new Set(this.json<string[]>(L.deleted, []));
     this.localOnly = new Set(this.json<string[]>(L.localOnly, []));
+    const p = this.json<Record<string, number>>(L.played, {});
+    this.played = p && typeof p === 'object' ? p : {};
   }
 
   /** Сохранить локально. false — не хватило места в localStorage. */
@@ -187,6 +252,7 @@ export class UserData {
       this.local.set(L.prefs, JSON.stringify(this.prefs));
       this.local.set(L.deleted, JSON.stringify([...this.deleted].slice(-MAX_TOMBSTONES)));
       this.local.set(L.localOnly, JSON.stringify([...this.localOnly]));
+      this.local.set(L.played, JSON.stringify(this.played));
       return true;
     } catch {
       return false;
@@ -221,6 +287,7 @@ export class UserData {
     if (!kv) return Promise.resolve();
     return this.enqueue(async () => {
       try {
+        this.syncError = '';
         const idx = await this.readIndex(kv);
         for (const id of idx.deleted) this.deleted.add(id);
         const before = this.songs.length;
@@ -275,7 +342,9 @@ export class UserData {
           if (this.prefs.updatedAt > 0) await writeBlob(kv, C.prefs, JSON.stringify(this.prefs));
         }
 
-        this.syncError = '';
+        // Сыгранные ноты: максимум по каждому устройству
+        if (await this.mergePlayedCloud(kv)) changed = true;
+
         this.saveLocal();
         if (changed) this.onChange();
       } catch (e) {

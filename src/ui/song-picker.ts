@@ -28,6 +28,8 @@ export class SongPicker {
   onDelete: (id: string) => void = () => {};
   /** Где хранятся свои ноты: есть ли облако Telegram и какие мелодии не поместились в него. */
   storage: () => { cloud: boolean; localOnly: Set<string> } = () => ({ cloud: false, localOnly: new Set() });
+  /** Всего сыграно нот пользователем (на всех устройствах). */
+  played: () => number = () => 0;
   private note = '';
   private noteKind: 'info' | 'error' = 'info';
 
@@ -51,6 +53,9 @@ export class SongPicker {
     const title = document.createElement('div');
     title.className = 'picker-title';
     title.textContent = 'Выбор мелодии';
+    const played = document.createElement('div');
+    played.className = 'picker-played';
+    played.textContent = `Сыграно нот всего: ${this.played()}`;
     const grid = document.createElement('div');
     grid.className = 'picker-grid';
     this.songs().forEach((s, i) => {
@@ -118,7 +123,7 @@ export class SongPicker {
     add.append(addName, addMeta, input);
     grid.appendChild(add);
 
-    const nodes: Node[] = [title];
+    const nodes: Node[] = [title, played];
     if (this.note) {
       const msg = document.createElement('div');
       msg.className = `picker-note ${this.noteKind}`;
