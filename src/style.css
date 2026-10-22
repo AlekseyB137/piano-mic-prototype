@@ -337,3 +337,22 @@ button.small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
 .picker-note.error { background: #3a1e22; border-color: var(--danger); }
 
 .tile-count { font-size: 13px; font-weight: 700; color: var(--text); }
+
+/* Запись по сценарию: инструкция поверх области над клавиатурой */
+.scenario {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  padding: 12px; background: var(--bg); text-align: center;
+}
+.scenario.hidden { display: none; }
+.sc-step { font-size: 13px; color: var(--text-dim); }
+.sc-say { font-size: 30px; font-weight: 800; }
+.sc-sub { font-size: 14px; color: var(--warn); min-height: 1.2em; max-width: 640px; }
+.sc-phase { font-size: 18px; font-weight: 700; color: var(--text-dim); min-height: 1.3em; }
+.sc-phase.go { color: var(--success); }
+.sc-track { width: min(480px, 80%); height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.sc-bar { height: 100%; width: 0; background: var(--success); }
+.sc-last { font-size: 13px; min-height: 1.2em; color: var(--text-dim); }
+.sc-last.ok { color: var(--success); }
+.sc-last.bad { color: var(--danger); }
+.sc-actions { display: flex; gap: 8px; margin-top: 6px; }

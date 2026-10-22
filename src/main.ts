@@ -18,6 +18,9 @@ import { telegramCloud } from './storage/kv';
 import { importScoreFile } from './import/musicxml';
 import { IMPORT_LIMITS, mb } from './import/common';
 import type { Song } from './song/types';
+import { ScenarioView } from './ui/scenario';
+import { SCENARIO } from './record/scenario-steps';
+import { encodeWav, toInt16, type RecordingMeta, type StepLabel } from './record/wav';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
@@ -658,7 +661,120 @@ function attackText(a: { flux: number; rmsDb: number; hfRiseDb: number }): strin
   return `атака ${a.flux.toFixed(3)}, ${a.rmsDb.toFixed(0)} дБFS, ВЧ +${a.hfRiseDb.toFixed(0)} дБ`;
 }
 
+// --- Запись по сценарию: звук + правильные ответы, чтобы прогонять распознавание на настоящем звуке ---
+/** Предел длины записи, с (16 бит × 48 кГц ≈ 5.8 МБ в минуту). */
+const REC_MAX_SEC = 360;
+interface Recording {
+  chunks: Int16Array[];
+  samples: number;
+  sampleRate: number;
+  t0: number | null;
+  /** Время анализатора конца записанного звука. */
+  now: number;
+  controls: RecordingMeta['controls'];
+  live: unknown[];
+  params: AnalyzerParams;
+}
+let rec: Recording | null = null;
+
+const scenario = new ScenarioView($('#scenario'), SCENARIO, {
+  setExpected: (midis) => {
+    expected.clear();
+    for (const m of midis) expected.add(m);
+    sendExpected();
+  },
+  calibrate: () => capture.post({ type: 'calibrate', seconds: 2 }),
+  analyzerNow: () => rec?.now ?? 0,
+  onFinish: (steps, aborted) => void finishRecording(steps, aborted),
+});
+
+debug.onRecord = () => {
+  if (!capture.running || !captureInfo) {
+    showMessage('Сначала нажмите «Старт».', 'info');
+    return;
+  }
+  if (scenario.active) return;
+  debug.root.classList.add('collapsed');
+  setMode('check');
+  rec = { chunks: [], samples: 0, sampleRate: captureInfo.sampleRate, t0: null, now: 0, controls: [], live: [], params: { ...params } };
+  capture.post({ type: 'record', on: true });
+  log.add('Запись по сценарию: начало');
+  scenario.start();
+};
+
+function recordEvent(ev: AnalyzerEvent): void {
+  if (!rec) return;
+  if (ev.type === 'recAudio') {
+    if (rec.t0 === null) rec.t0 = ev.t0;
+    rec.chunks.push(toInt16(ev.samples));
+    rec.samples += ev.samples.length;
+    rec.now = ev.t0 + ev.samples.length / rec.sampleRate;
+    if (rec.samples / rec.sampleRate > REC_MAX_SEC && scenario.active) log.add('Запись: достигнут предел длины', 'error');
+  } else if (ev.type === 'recControl') rec.controls.push({ t: ev.t, msg: ev.msg });
+  else if (ev.type === 'calibrated') rec.live.push({ ...ev, noisePreview: undefined });
+  else if (ev.type !== 'frame' && ev.type !== 'clock' && ev.type !== 'info') rec.live.push(ev);
+}
+
+async function finishRecording(steps: StepLabel[], aborted: boolean): Promise<void> {
+  capture.post({ type: 'record', on: false });
+  await new Promise((r) => setTimeout(r, 300)); // дождаться последнего куска звука
+  const r = rec;
+  rec = null;
+  expected.clear();
+  sendExpected();
+  if (!r || r.t0 === null || !r.samples) {
+    scenario.showDone('Звук не записался — проверьте, что аудио запущено.', [['Закрыть', () => scenario.hide()]]);
+    return;
+  }
+  const meta: RecordingMeta = {
+    app: 'piano-mic',
+    version: 1,
+    build: __BUILD_ID__,
+    ua: navigator.userAgent,
+    sampleRate: r.sampleRate,
+    bigFft: fftSize,
+    params: r.params,
+    t0: r.t0,
+    controls: r.controls,
+    steps,
+    live: r.live,
+  };
+  const bytes = encodeWav(r.chunks, r.sampleRate, meta);
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+  const file = new File([bytes.slice()], `piano-rec-${stamp}.wav`, { type: 'audio/wav' });
+  const secs = r.samples / r.sampleRate;
+  log.add(`Запись по сценарию: ${aborted ? 'остановлена' : 'готова'}, ${fmtTime(secs)}, ${mb(file.size)}, шагов ${steps.length}`);
+  const save = async () => {
+    try {
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: file.name });
+        return;
+      }
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return; // закрыли меню «Поделиться»
+    }
+    // Запасной путь — скачать файлом
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+  scenario.showDone(
+    `${fmtTime(secs)}, ${mb(file.size)}, шагов: ${steps.length}${aborted ? ' (остановлено раньше)' : ''}. ` +
+      'Отправьте файл разработчику. Если кнопка не срабатывает в Telegram — откройте приложение в Safari и запишите там.',
+    [
+      ['Сохранить / отправить', () => void save()],
+      ['Закрыть', () => scenario.hide()],
+    ],
+  );
+}
+
 function onEvent(ev: AnalyzerEvent): void {
+  recordEvent(ev);
   switch (ev.type) {
     case 'info':
       workletInfo = ev;
@@ -711,6 +827,7 @@ function onEvent(ev: AnalyzerEvent): void {
         ev.allPassed ? 'pass' : 'fail',
         ev.onsetTime,
       );
+      if (scenario.active) scenario.showVerdict(`Приложение услышало: ${parts.join(' ')}`, ev.allPassed);
       if (!debug.root.classList.contains('collapsed')) refreshInfo();
       break;
     }
@@ -778,6 +895,7 @@ btnStart.addEventListener('click', async () => {
     latestFrame = null;
     keyboard.clear('detected');
     log.add('Стоп');
+    scenario.stop(); // запись по сценарию без звука продолжать нельзя
     refreshInfo();
     updateSongStatus();
     return;

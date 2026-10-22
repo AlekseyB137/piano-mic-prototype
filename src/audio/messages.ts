@@ -8,7 +8,9 @@ export type WorkletInMessage =
   | { type: 'expected'; midis: number[] }
   | { type: 'calibrate'; seconds: number }
   /** Касание экрана: столько секунд атаки не открывают проверку (стук пальца по телефону). */
-  | { type: 'mute'; seconds: number };
+  | { type: 'mute'; seconds: number }
+  /** Запись для отладки: сырой звук и все управляющие сообщения с точным временем анализатора. */
+  | { type: 'record'; on: boolean };
 
 export interface PitchInfo {
   freq: number;
@@ -110,6 +112,20 @@ export interface ClockEvent {
   analyzerTime: number;
 }
 
+/** Кусок записанного звука (как его получил анализатор); t0 — время анализатора первого сэмпла. */
+export interface RecAudioEvent {
+  type: 'recAudio';
+  t0: number;
+  samples: Float32Array;
+}
+
+/** Управляющее сообщение, применённое во время записи, со временем анализатора (для точного воспроизведения). */
+export interface RecControlEvent {
+  type: 'recControl';
+  t: number;
+  msg: WorkletInMessage;
+}
+
 export type AnalyzerEvent =
   | InfoEvent
   | FrameEvent
@@ -119,4 +135,6 @@ export type AnalyzerEvent =
   | CalibratedEvent
   | DroppedEvent
   | CheckStartEvent
-  | ClockEvent;
+  | ClockEvent
+  | RecAudioEvent
+  | RecControlEvent;
