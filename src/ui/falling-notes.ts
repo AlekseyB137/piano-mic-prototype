@@ -120,7 +120,8 @@ export class FallingNotes {
     for (const step of player.steps) {
       // Сыгранный шаг виден только во время анимации «ухода в клавишу»
       let sinkP = -1;
-      if (step.state === 'done') {
+      // Запись: не сыгранный шаг просто проезжает за линию
+      if (step.state === 'done' && !step.missed) {
         const at = this.sinks.get(step.index);
         if (at === undefined || now - at > SINK_SEC) continue;
         sinkP = Math.max(0, (now - at) / SINK_SEC);

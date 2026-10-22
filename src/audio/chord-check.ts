@@ -202,13 +202,16 @@ export function evaluateNotes(ctx: SpectrumContext, expected: number[], p: Chord
     let octaveDown = false;
     for (const sh of SUBHARMONICS) {
       if (set.has(midi - sh.semis)) continue;
-      // Нижняя нота, звучавшая ещё ДО удара (держится бас: E3 под E4), — не она сыграна сейчас:
-      // её частоты учитываем, только если они выросли с удара
-      const vals = sh.ratios
+      const xs = sh.ratios
         .map((r) => f0 * r)
         .filter((f) => f >= MIN_SUB_HZ && !explainedByOthers(f, others))
-        .map((f) => snrAt(ctx, f, p.toleranceCents))
-        .map((x) => (ctx.reference && p.riseDb > 0 && x.rise !== null && x.rise < p.riseDb ? -Infinity : x.snr))
+        .map((f) => snrAt(ctx, f, p.toleranceCents));
+      // Нижняя нота, звучавшая ещё ДО удара (держится бас: E3 под E4), — не она сыграна сейчас.
+      // «Старая» — только если не выросла НИ ОДНА её частота: одна из частот может совпасть с другой
+      // звучащей нотой (C3 после C4: 2/3·G4 = C4), а сама нижняя нота при этом свежая.
+      if (ctx.reference && p.riseDb > 0 && xs.length > 0 && xs.every((x) => x.rise !== null && x.rise < p.riseDb)) continue;
+      const vals = xs
+        .map((x) => x.snr)
         .filter((v) => Number.isFinite(v))
         .sort((a, b) => b - a);
       if (vals.length < sh.need) continue;

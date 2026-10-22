@@ -64,9 +64,10 @@ export function grade(events: readonly unknown[], steps: StepLabel[]): StepResul
     const fails = cs.length - passes;
     let ok: boolean;
     if (step.want === 'pass') ok = passes >= step.times;
-    else if (step.want === 'fail') ok = fails >= 1 && passes === 0;
+    // Не та нота: главное — не засчитать; «✗» или молчание (мягкое окно) — оба верны
+    else if (step.want === 'fail') ok = passes === 0;
     else ok = cs.length === 0;
-    const got = cs.length === 0 ? 'нет вердикта' : `✓${passes} ✗${fails}`;
+    const got = cs.length === 0 ? 'молча' : `✓${passes} ✗${fails}`;
     return { step, checks: cs, dropped: ds, ok, got };
   });
 }

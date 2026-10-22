@@ -4,11 +4,13 @@
  * Запуск: npm run test:rec
  */
 import { Analyzer } from '../src/audio/analyzer';
-import { midiToFreq } from '../src/audio/notes';
+import { midiToFreq, midiToName } from '../src/audio/notes';
 import type { AnalyzerEvent, WorkletInMessage } from '../src/audio/messages';
 import { DEFAULT_PARAMS } from '../src/audio/params';
 import { decodeWav, encodeWav, toInt16, type RecordingMeta, type StepLabel } from '../src/record/wav';
 import { grade, replay } from '../src/record/replay';
+import { RECORD_SONG } from '../src/record/record-song';
+import { SongPlayer } from '../src/song/player';
 
 let pass = 0, fail = 0;
 function expect(name: string, ok: boolean, detail = '') {
@@ -97,6 +99,72 @@ const g = grade(ev, back.meta!.steps);
 expect('Оценка шагов: все 5 верны (✓, ✗ на чужую ноту, тишина без вердикта)', g.every((x) => x.ok), g.map((x) => `${x.step.say}:${x.got}`).join('; '));
 const gLive = grade(back.meta!.live, back.meta!.steps);
 expect('Оценка по живым событиям из файла совпадает', gLive.every((x, i) => x.ok === g[i].ok));
+
+// Мелодия записи целиком: «пользователь» играет ровно то, что падает (держит басы, с небольшим
+// разбросом по времени); вживую — как в приложении: окна шагов, тайные проверки, без остановок.
+{
+  const LAT = 0.12;
+  const startAt = 3; // после калибровки
+  const player = new SongPlayer(RECORD_SONG, 'tempo', 4, { earlySec: 0.18, lateSec: 0.18, latencySec: LAT }, 1, true);
+  player.tick(startAt);
+  const spb = player.secPerBeat;
+  const len = startAt + (4 + Math.max(...RECORD_SONG.notes.map((n) => n.start + n.dur)) + 2) * spb;
+  const sig2 = new Float32Array(Math.floor(len * SR));
+  const rr = rand(11);
+  for (let i = 0; i < sig2.length; i++) sig2[i] = 0.002 * rr();
+  const jit = rand(5);
+  for (const n of RECORD_SONG.notes) {
+    const t = startAt + (4 + n.start) * spb + LAT + 0.04 * jit();
+    // звучит, пока держат (длительность ноты), затухание медленное, как у цифрового пианино
+    const f0 = midiToFreq(n.pitch), i0 = Math.floor(t * SR), m = Math.min(sig2.length - i0, Math.floor((n.dur * spb + 0.3) * SR));
+    const r2 = rand(n.pitch * 7 + Math.round(n.start * 10));
+    const ph = Array.from({ length: 10 }, () => r2() * Math.PI);
+    for (let i = 0; i < m; i++) {
+      const tt = i / SR;
+      let s = 0;
+      for (let h = 1; h <= 10; h++) s += ((h === 1 && n.pitch < 60 ? 0.5 : 1) / h) * Math.exp(-tt * 0.5 * (1 + 0.4 * h)) * Math.sin(2 * Math.PI * h * f0 * Math.sqrt(1 + 3e-4 * h * h) * tt + ph[h - 1]);
+      sig2[i0 + i] += 0.2 * Math.min(1, tt / 0.003) * (s * 0.5 + (tt < 0.01 ? r2() * 0.3 * (1 - tt / 0.01) : 0));
+    }
+  }
+  const an = new Analyzer(SR);
+  const ctl: RecordingMeta['controls'] = [{ t: 0, msg: { type: 'calibrate', seconds: 2 } }];
+  an.startCalibration(2);
+  const liveEv: AnalyzerEvent[] = [];
+  let sent = '';
+  for (let i = 0; i < sig2.length; i += 128) {
+    const t = an.time;
+    if (t >= startAt) player.tick(t);
+    const exp = t >= startAt ? player.expected() : [];
+    if (exp.join() !== sent) {
+      sent = exp.join();
+      ctl.push({ t, msg: { type: 'expected', midis: exp } });
+      an.setExpected(exp);
+    }
+    for (const e of an.process(sig2.subarray(i, i + 128))) {
+      if (e.type === 'frame') continue;
+      liveEv.push(e);
+      if (e.type === 'check') player.judge(e.allPassed, e.onsetTime, an.time);
+    }
+  }
+  const labels: StepLabel[] = player.steps.map((st, i) => {
+    const w = player.recordWindow(i)!;
+    const play = [...new Set(st.notes.map((n) => n.pitch))].sort((a, b) => a - b);
+    const expect = player.checkFor(st);
+    return { index: i, say: '', expect, play, want: expect.join() === play.join() ? 'pass' : 'fail', times: 1, tStart: w[0], tEnd: w[1] };
+  });
+  const secret = labels.filter((l) => l.want === 'fail').length;
+  expect(`Мелодия записи: ${labels.length} шагов, из них тайных проверок ошибки ${secret}`, labels.length > 40 && secret === 9, `${labels.length}/${secret}`);
+  expect('Мелодия записи доиграна без остановок', player.finished);
+  const metaS: RecordingMeta = { app: 'piano-mic', version: 1, build: 'test', ua: 'test', sampleRate: SR, bigFft: 8192, params: DEFAULT_PARAMS, t0: 0, controls: ctl, steps: labels, live: liveEv };
+  const back2 = decodeWav(encodeWav([toInt16(sig2)], SR, metaS));
+  const g2 = grade(replay(back2.samples, back2.meta!), back2.meta!.steps);
+  const bad = g2.filter((x) => !x.ok).map((x) => `играли ${x.step.play.map(midiToName).join('+')}, проверка ${x.step.expect.map(midiToName).join('+')}: ${x.got}`);
+  // Синтетика ≠ пианино: допускаем пару промахов, но тайные ошибки не должны засчитываться
+  const falsePass = g2.filter((x) => x.step.want === 'fail' && x.checks.some((c) => c.allPassed)).length;
+  expect('Мелодия записи на синтетике: тайные ошибки не засчитаны', falsePass === 0, bad.join('; '));
+  expect('Мелодия записи на синтетике: не больше 3 неверных шагов', bad.length <= 3, bad.join('; '));
+  if (bad.length) console.log(`  (неверные шаги на синтетике: ${bad.join('; ')})`);
+}
 
 console.log(`\nИтого: ${pass} ✓, ${fail} ✗`);
 process.exit(fail ? 1 : 0);

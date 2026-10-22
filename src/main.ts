@@ -18,8 +18,7 @@ import { telegramCloud } from './storage/kv';
 import { importScoreFile } from './import/musicxml';
 import { IMPORT_LIMITS, mb } from './import/common';
 import type { Song } from './song/types';
-import { ScenarioView } from './ui/scenario';
-import { SCENARIO } from './record/scenario-steps';
+import { RECORD_SONG } from './record/record-song';
 import { encodeWav, toInt16, type RecordingMeta, type StepLabel } from './record/wav';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
@@ -487,6 +486,10 @@ function updateSongStatus(): void {
   if (mode !== 'song') return;
   const cur = player.current;
   let text: string;
+  if (recordRun) {
+    songStatus.textContent = performance.now() < recordStartAt ? 'Запись: тишина, не играйте…' : 'Запись: играйте падающие ноты';
+    return;
+  }
   if (picker.visible) text = '';
   else if (!capture.running) text = 'Нажмите «Старт», затем «Тишина 2 с»';
   else if (!cur) text = 'Готово!';
@@ -567,8 +570,9 @@ const JUDGE_TEXT = { hit: 'вовремя', early: 'рано (не засчит�
 
 /** Шаг сыгран: нота «уходит в клавишу», клавиша вспыхивает зелёным. */
 function songStepDone(stepIndex: number, midis: number[], now: number): void {
-  // Засчитанные ноты шага (каждая нота аккорда отдельно) — основа оплаты; «рано» и ошибки не считаются
-  userData.addPlayed(player.steps[stepIndex]?.notes.length ?? 0);
+  // Засчитанные ноты шага (каждая нота аккорда отдельно) — основа оплаты; «рано» и ошибки не считаются.
+  // Запись для отладки — не обучение, не считаем
+  if (!recordRun) userData.addPlayed(player.steps[stepIndex]?.notes.length ?? 0);
   falling.sink(stepIndex, now);
   for (const m of midis) keyboard.mark(m, 'pass', true);
   window.setTimeout(() => {
@@ -580,6 +584,14 @@ function songStepDone(stepIndex: number, midis: number[], now: number): void {
 function onSongCheck(allPassed: boolean, notes: { midi: number; passed: boolean }[], onsetTime: number): void {
   const now = capture.ctx?.currentTime ?? 0;
   const step = player.current;
+  if (recordRun) {
+    // Запись: сыгранное — «в клавишу», не засчитанное молча (часть шагов тайно ждёт другую ноту)
+    if (clockOffset === null || performance.now() < recordStartAt) return;
+    const j = player.judge(allPassed, onsetTime + clockOffset, now);
+    if (j === 'hit' && step) songStepDone(step.index, notes.map((n) => n.midi), now);
+    sendExpected();
+    return;
+  }
   if (playMode === 'tempo') {
     if (clockOffset === null) return; // часы ещё не привязаны — оценить ритм нельзя
     const j = player.judge(allPassed, onsetTime + clockOffset, now);
@@ -677,30 +689,61 @@ interface Recording {
 }
 let rec: Recording | null = null;
 
-const scenario = new ScenarioView($('#scenario'), SCENARIO, {
-  setExpected: (midis) => {
-    expected.clear();
-    for (const m of midis) expected.add(m);
-    sendExpected();
-  },
-  calibrate: () => capture.post({ type: 'calibrate', seconds: 2 }),
-  analyzerNow: () => rec?.now ?? 0,
-  onFinish: (steps, aborted) => void finishRecording(steps, aborted),
-});
+/** Идёт запись: играется RECORD_SONG без остановок. */
+let recordRun = false;
+/** До этого момента (performance.now) — тишина для калибровки, ноты стоят. */
+let recordStartAt = 0;
 
 debug.onRecord = () => {
   if (!capture.running || !captureInfo) {
     showMessage('Сначала нажмите «Старт».', 'info');
     return;
   }
-  if (scenario.active) return;
+  if (recordRun) return;
   debug.root.classList.add('collapsed');
-  setMode('check');
+  hideMessage();
+  setMode('song');
+  recordRun = true;
+  player = new SongPlayer(RECORD_SONG, 'tempo', 4, { ...DEFAULT_WINDOW, latencySec: latencyMs / 1000 }, 1, true);
+  falling.reset();
+  songDoneShown = false;
+  picker.hide();
+  songDone.classList.add('hidden');
+  const r = songKeyRange();
+  keyboard.setRange(r.low, r.high);
   rec = { chunks: [], samples: 0, sampleRate: captureInfo.sampleRate, t0: null, now: 0, controls: [], live: [], params: { ...params } };
   capture.post({ type: 'record', on: true });
-  log.add('Запись по сценарию: начало');
-  scenario.start();
+  capture.post({ type: 'calibrate', seconds: 2 }); // калибровка — внутри записи, чтобы прогон повторял её
+  recordStartAt = performance.now() + 2300;
+  lastAudioT = null;
+  sendExpected(true);
+  updateSongStatus();
+  log.add('Запись: начало');
 };
+
+/** Экран после записи (на месте «Готово!»). */
+function showRecordDone(text: string, save: (() => Promise<void>) | null): void {
+  songDone.replaceChildren();
+  const title = document.createElement('strong');
+  title.textContent = save ? 'Запись готова' : 'Запись не удалась';
+  const info = document.createElement('div');
+  info.textContent = text;
+  const row = document.createElement('div');
+  row.className = 'row';
+  const btn = (label: string, fn: () => void, primary = false) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    if (primary) b.className = 'primary';
+    b.addEventListener('click', fn);
+    row.appendChild(b);
+  };
+  if (save) btn('Сохранить / отправить', () => void save(), true);
+  btn('Записать ещё раз', () => debug.onRecord());
+  btn('Закрыть', chooseSong);
+  songDone.append(title, info, row);
+  songDone.classList.remove('hidden');
+  songDoneShown = true;
+}
 
 function recordEvent(ev: AnalyzerEvent): void {
   if (!rec) return;
@@ -709,23 +752,44 @@ function recordEvent(ev: AnalyzerEvent): void {
     rec.chunks.push(toInt16(ev.samples));
     rec.samples += ev.samples.length;
     rec.now = ev.t0 + ev.samples.length / rec.sampleRate;
-    if (rec.samples / rec.sampleRate > REC_MAX_SEC && scenario.active) log.add('Запись: достигнут предел длины', 'error');
+    if (rec.samples / rec.sampleRate > REC_MAX_SEC && recordRun) void finishRecording(true); // предел длины
   } else if (ev.type === 'recControl') rec.controls.push({ t: ev.t, msg: ev.msg });
   else if (ev.type === 'calibrated') rec.live.push({ ...ev, noisePreview: undefined });
   else if (ev.type !== 'frame' && ev.type !== 'clock' && ev.type !== 'info') rec.live.push(ev);
 }
 
-async function finishRecording(steps: StepLabel[], aborted: boolean): Promise<void> {
+async function finishRecording(aborted: boolean): Promise<void> {
+  if (!recordRun) return;
+  recordRun = false;
+  // Правильные ответы: окно каждого шага (аудиовремя → время анализатора) и что в нём проверялось
+  const off = clockOffset ?? 0;
+  const steps: StepLabel[] = player.steps.flatMap((s, i) => {
+    const w = player.recordWindow(i);
+    if (!w) return [];
+    const play = [...new Set(s.notes.map((n) => n.pitch))].sort((a, b) => a - b);
+    const expect = player.checkFor(s);
+    return [{
+      index: i,
+      say: play.map(midiToName).join('+'),
+      expect,
+      play,
+      want: expect.join() === play.join() ? 'pass' : 'fail',
+      times: 1,
+      tStart: w[0] - off,
+      tEnd: w[1] - off,
+    } satisfies StepLabel];
+  });
   capture.post({ type: 'record', on: false });
   await new Promise((r) => setTimeout(r, 300)); // дождаться последнего куска звука
   const r = rec;
   rec = null;
-  expected.clear();
-  sendExpected();
+  newPlayer(); // обратно к выбранной мелодии пользователя
   if (!r || r.t0 === null || !r.samples) {
-    scenario.showDone('Звук не записался — проверьте, что аудио запущено.', [['Закрыть', () => scenario.hide()]]);
+    showRecordDone('Звук не записался — проверьте, что аудио запущено.', null);
     return;
   }
+  // Шаги, до которых запись не дошла (остановили раньше), не оцениваем
+  const recorded = steps.filter((s) => s.tEnd <= r.now + 0.05);
   const meta: RecordingMeta = {
     app: 'piano-mic',
     version: 1,
@@ -736,14 +800,14 @@ async function finishRecording(steps: StepLabel[], aborted: boolean): Promise<vo
     params: r.params,
     t0: r.t0,
     controls: r.controls,
-    steps,
+    steps: recorded,
     live: r.live,
   };
   const bytes = encodeWav(r.chunks, r.sampleRate, meta);
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
   const file = new File([bytes.slice()], `piano-rec-${stamp}.wav`, { type: 'audio/wav' });
   const secs = r.samples / r.sampleRate;
-  log.add(`Запись по сценарию: ${aborted ? 'остановлена' : 'готова'}, ${fmtTime(secs)}, ${mb(file.size)}, шагов ${steps.length}`);
+  log.add(`Запись: ${aborted ? 'остановлена' : 'готова'}, ${fmtTime(secs)}, ${mb(file.size)}, шагов ${recorded.length}`);
   const save = async () => {
     try {
       if (navigator.canShare?.({ files: [file] })) {
@@ -763,13 +827,10 @@ async function finishRecording(steps: StepLabel[], aborted: boolean): Promise<vo
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
-  scenario.showDone(
-    `${fmtTime(secs)}, ${mb(file.size)}, шагов: ${steps.length}${aborted ? ' (остановлено раньше)' : ''}. ` +
+  showRecordDone(
+    `${fmtTime(secs)}, ${mb(file.size)}, нот/аккордов: ${recorded.length}${aborted ? ' (остановлено раньше)' : ''}. ` +
       'Отправьте файл разработчику. Если кнопка не срабатывает в Telegram — откройте приложение в Safari и запишите там.',
-    [
-      ['Сохранить / отправить', () => void save()],
-      ['Закрыть', () => scenario.hide()],
-    ],
+    save,
   );
 }
 
@@ -827,7 +888,6 @@ function onEvent(ev: AnalyzerEvent): void {
         ev.allPassed ? 'pass' : 'fail',
         ev.onsetTime,
       );
-      if (scenario.active) scenario.showVerdict(`Приложение услышало: ${parts.join(' ')}`, ev.allPassed);
       if (!debug.root.classList.contains('collapsed')) refreshInfo();
       break;
     }
@@ -895,7 +955,7 @@ btnStart.addEventListener('click', async () => {
     latestFrame = null;
     keyboard.clear('detected');
     log.add('Стоп');
-    scenario.stop(); // запись по сценарию без звука продолжать нельзя
+    void finishRecording(true); // запись без звука продолжать нельзя
     refreshInfo();
     updateSongStatus();
     return;
@@ -956,7 +1016,16 @@ function render(): void {
     // Единственный источник времени — AudioContext.currentTime; без звука песня стоит
     const ctx = capture.ctx;
     const t = ctx && ctx.state === 'running' ? ctx.currentTime : null;
-    if (t !== null) {
+    if (t !== null && recordRun) {
+      // Запись: сначала 2 с тишины (калибровка), потом ноты едут без остановок
+      updateSongStatus();
+      if (performance.now() >= recordStartAt) {
+        const idx = player.current?.index;
+        player.tick(t);
+        if (player.current?.index !== idx) sendExpected();
+      }
+      if (player.finished) void finishRecording(false);
+    } else if (t !== null) {
       if (playMode === 'tempo') {
         const wasLeadIn = player.beat < 0;
         const wasWaiting = player.waiting;
@@ -973,7 +1042,8 @@ function render(): void {
         showSongDone();
       }
     } else lastAudioT = null;
-    falling.draw(player, t ?? performance.now() / 1000, playMode);
+    falling.draw(player, t ?? performance.now() / 1000, recordRun ? 'tempo' : playMode);
+    appEl.classList.toggle('recording', recordRun);
   }
   // Экраны выбора и «Готово!» — клавиатура не нужна и закрывает кнопки
   const overlay = mode === 'song' && (picker.visible || !songDone.classList.contains('hidden'));
