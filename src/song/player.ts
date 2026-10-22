@@ -21,7 +21,7 @@ export interface Step {
   late: boolean;
   /** «В такт»: была попытка раньше окна (не засчитана). */
   early: boolean;
-  /** Запись: шаг проехал, не сыгран (игра не ждёт). */
+  /** Запись: шаг пропущен (тайная проверка ошибки), не сыгран. */
   missed: boolean;
 }
 
@@ -89,11 +89,6 @@ export class SongPlayer {
     readonly window: TempoWindow = DEFAULT_WINDOW,
     /** Множитель темпа (0.5–1): учиться можно медленнее, чем записано в песне. */
     readonly tempoFactor = 1,
-    /**
-     * Запись по сценарию («В такт» без остановок): ноты едут в своём темпе, не сыгранный шаг
-     * проезжает; у каждого шага своё окно (recordWindow) — в нём проверяем именно его ноты.
-     */
-    readonly freeRun = false,
   ) {
     const byStart = new Map<number, SongNote[]>();
     for (const n of [...song.notes].sort((a, b) => a.start - b.start)) {
@@ -146,21 +141,15 @@ export class SongPlayer {
     return [...new Set(secret ? secret.midis : step.notes.map((n) => n.pitch))].sort((a, b) => a - b);
   }
 
-  /**
-   * Запись: окно шага в аудиовремени — от чуть раньше его доли (с поправкой задержки) до начала окна
-   * следующего. Запас до доли — половина промежутка от прошлого шага, но не больше 0.3 с.
-   */
-  recordWindow(i: number): [number, number] | null {
-    const s = this.steps[i];
-    const t = s ? this.stepTime(s) : null;
-    if (!s || t === null) return null;
-    const startOf = (k: number) => {
-      const tk = this.stepTime(this.steps[k])! + this.window.latencySec;
-      const gap = k > 0 ? (this.steps[k].start - this.steps[k - 1].start) * this.secPerBeat : 1;
-      return tk - Math.min(0.3, gap / 2);
-    };
-    const end = i + 1 < this.steps.length ? startOf(i + 1) : t + this.window.latencySec + 1.2;
-    return [startOf(i), end];
+  /** Запись: пропустить текущий шаг (тайная проверка ошибки отработала или не дала вердикта). */
+  skip(): void {
+    const cur = this.current;
+    if (!cur) return;
+    cur.state = 'done';
+    cur.missed = true;
+    this.idx++;
+    this.waiting = false;
+    this.markCurrent();
   }
 
   /** Аудиовремя доли шага («В такт»); null — песня ещё не запущена. */
@@ -191,22 +180,6 @@ export class SongPlayer {
   /** «В такт»: выставить позицию по аудиочасам; если окно текущего шага прошло — встать и ждать. */
   tick(now: number): void {
     if (this.startTime === null) this.startTime = now;
-    if (this.freeRun) {
-      // Запись: без остановок; окно шага прошло — шаг проехал
-      this.beat = -this.leadInBeats + (now - this.startTime) / this.secPerBeat;
-      while (this.current && now >= this.recordWindow(this.idx)![1]) {
-        const cur = this.current;
-        cur.state = 'done';
-        cur.missed = true;
-        this.idx++;
-        this.markCurrent();
-      }
-      this.displayBeat = this.beat - this.window.latencySec / this.secPerBeat;
-      this.waiting = false;
-      if (this.finished && this.endTime === null) this.endTime = now;
-      this.elapsedSec = Math.max(0, (this.endTime ?? now) - this.startTime - this.leadInBeats * this.secPerBeat);
-      return;
-    }
     if (this.pausedAt === null) {
       this.beat = -this.leadInBeats + (now - this.startTime) / this.secPerBeat;
       const cur = this.current;
@@ -255,17 +228,6 @@ export class SongPlayer {
     const t = cur ? this.stepTime(cur) : null;
     if (!cur || t === null) return 'ignored';
     const dt = onsetTime - t - this.window.latencySec;
-    if (this.freeRun) {
-      // Запись: окно шага задаёт сам сценарий, «рано»/«поздно» не нужны
-      if (!passed) {
-        cur.mistakes++;
-        this.mistakes++;
-        return 'wrong';
-      }
-      cur.offsetSec = dt;
-      this.complete(cur);
-      return 'hit';
-    }
     if (!passed) {
       cur.mistakes++;
       this.mistakes++;

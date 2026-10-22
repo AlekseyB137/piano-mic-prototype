@@ -19,6 +19,7 @@ import { importScoreFile } from './import/musicxml';
 import { IMPORT_LIMITS, mb } from './import/common';
 import type { Song } from './song/types';
 import { RECORD_SONG } from './record/record-song';
+import { RecordSession } from './record/session';
 import { encodeWav, toInt16, type RecordingMeta, type StepLabel } from './record/wav';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
@@ -487,7 +488,8 @@ function updateSongStatus(): void {
   const cur = player.current;
   let text: string;
   if (recordRun) {
-    songStatus.textContent = performance.now() < recordStartAt ? 'Запись: тишина, не играйте…' : 'Запись: играйте падающие ноты';
+    songStatus.textContent =
+      performance.now() < recordStartAt ? 'Запись: тишина, не играйте…' : `Запись: играйте падающие ноты · ${Math.min(player.steps.length, (player.current?.index ?? player.steps.length) + 1)} из ${player.steps.length}`;
     return;
   }
   if (picker.visible) text = '';
@@ -584,11 +586,18 @@ function songStepDone(stepIndex: number, midis: number[], now: number): void {
 function onSongCheck(allPassed: boolean, notes: { midi: number; passed: boolean }[], onsetTime: number): void {
   const now = capture.ctx?.currentTime ?? 0;
   const step = player.current;
-  if (recordRun) {
-    // Запись: сыгранное — «в клавишу», не засчитанное молча (часть шагов тайно ждёт другую ноту)
+  if (recSession) {
+    // Запись: как «Ожидание»; на тайной проверке ошибки «✗» не показываем — там так и задумано
     if (clockOffset === null || performance.now() < recordStartAt) return;
-    const j = player.judge(allPassed, onsetTime + clockOffset, now);
-    if (j === 'hit' && step) songStepDone(step.index, notes.map((n) => n.midi), now);
+    const res = recSession.onCheck(allPassed, onsetTime + clockOffset);
+    if (res === 'pass' && step) songStepDone(step.index, notes.map((n) => n.midi), now);
+    else if (res === 'wrong') {
+      falling.flash(notes.filter((n) => !n.passed).map((n) => n.midi), 'fail', now, 0.6);
+      for (const n of notes) keyboard.mark(n.midi, 'fail', !n.passed);
+      window.setTimeout(() => {
+        if (mode === 'song') keyboard.clear('fail');
+      }, 700);
+    }
     sendExpected();
     return;
   }
@@ -689,8 +698,9 @@ interface Recording {
 }
 let rec: Recording | null = null;
 
-/** Идёт запись: играется RECORD_SONG без остановок. */
+/** Идёт запись: играется RECORD_SONG в режиме «Ожидание». */
 let recordRun = false;
+let recSession: RecordSession | null = null;
 /** До этого момента (performance.now) — тишина для калибровки, ноты стоят. */
 let recordStartAt = 0;
 
@@ -704,7 +714,8 @@ debug.onRecord = () => {
   hideMessage();
   setMode('song');
   recordRun = true;
-  player = new SongPlayer(RECORD_SONG, 'tempo', 4, { ...DEFAULT_WINDOW, latencySec: latencyMs / 1000 }, 1, true);
+  recSession = new RecordSession(RECORD_SONG);
+  player = recSession.player;
   falling.reset();
   songDoneShown = false;
   picker.hide();
@@ -763,22 +774,8 @@ async function finishRecording(aborted: boolean): Promise<void> {
   recordRun = false;
   // Правильные ответы: окно каждого шага (аудиовремя → время анализатора) и что в нём проверялось
   const off = clockOffset ?? 0;
-  const steps: StepLabel[] = player.steps.flatMap((s, i) => {
-    const w = player.recordWindow(i);
-    if (!w) return [];
-    const play = [...new Set(s.notes.map((n) => n.pitch))].sort((a, b) => a - b);
-    const expect = player.checkFor(s);
-    return [{
-      index: i,
-      say: play.map(midiToName).join('+'),
-      expect,
-      play,
-      want: expect.join() === play.join() ? 'pass' : 'fail',
-      times: 1,
-      tStart: w[0] - off,
-      tEnd: w[1] - off,
-    } satisfies StepLabel];
-  });
+  const steps: StepLabel[] = recSession ? recSession.labels((t) => t - off) : [];
+  recSession = null;
   capture.post({ type: 'record', on: false });
   await new Promise((r) => setTimeout(r, 300)); // дождаться последнего куска звука
   const r = rec;
@@ -1017,11 +1014,11 @@ function render(): void {
     const ctx = capture.ctx;
     const t = ctx && ctx.state === 'running' ? ctx.currentTime : null;
     if (t !== null && recordRun) {
-      // Запись: сначала 2 с тишины (калибровка), потом ноты едут без остановок
+      // Запись: сначала 2 с тишины (калибровка), потом ноты едут и ждут на линии
       updateSongStatus();
-      if (performance.now() >= recordStartAt) {
+      if (performance.now() >= recordStartAt && recSession) {
         const idx = player.current?.index;
-        player.tick(t);
+        recSession.tick(t);
         if (player.current?.index !== idx) sendExpected();
       }
       if (player.finished) void finishRecording(false);
@@ -1042,7 +1039,7 @@ function render(): void {
         showSongDone();
       }
     } else lastAudioT = null;
-    falling.draw(player, t ?? performance.now() / 1000, recordRun ? 'tempo' : playMode);
+    falling.draw(player, t ?? performance.now() / 1000, recordRun ? 'wait' : playMode);
     appEl.classList.toggle('recording', recordRun);
   }
   // Экраны выбора и «Готово!» — клавиатура не нужна и закрывает кнопки
