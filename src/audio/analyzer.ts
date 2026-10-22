@@ -174,6 +174,12 @@ export class Analyzer {
   private readonly preOnsetMid = new Float32Array(LONG_YIN / 2 + 1);
   // «Фортепианность» удара, открывшего окно проверки
   private sessionPiano = false;
+  /**
+   * Окно открыто атакой без подъёма ВЧ: засчитать (✓) можно, «не засчитано» — молча отбрасываем.
+   * Пока звучат прошлые ноты (бас держится, легато), их верх уже заполняет 2–6 кГц, и настоящий удар
+   * поднимает ВЧ лишь на 0–5 дБ — раньше такие удары терялись целиком (живой отчёт 2026-10-22).
+   */
+  private sessionSoft = false;
   /** Нота, подтверждённая детектором нот для удара, открывшего окно проверки. */
   private sessionNote: number | null = null;
   private sessionAttack: AttackInfo = { flux: 0, rmsDb: -120, hfRiseDb: 0 };
@@ -470,7 +476,11 @@ export class Analyzer {
     const tapMuted = t < this.checkMuteUntil;
     const hfOk = p.checkAttackHfDb <= 0 || hfRiseDb >= p.checkAttackHfDb;
     const strikeLike = !tapMuted && hfOk;
-    if (this.expected.length > 0 && !strikeLike) {
+    // Без подъёма ВЧ — «мягкое» окно, только если сейчас нет настоящего: его не закрываем,
+    // а прошлое мягкое (его могла открыть случайная атака) уступает новому
+    const busy = (this.session.isActive || this.pendingCheck !== null) && !this.sessionSoft;
+    const openSoft = !strikeLike && !tapMuted && this.expected.length > 0 && !busy;
+    if (this.expected.length > 0 && !strikeLike && !openSoft) {
       events.push({
         type: 'dropped',
         t,
@@ -482,7 +492,7 @@ export class Analyzer {
       });
     }
     // Если новая атака закрыла предыдущее окно проверки — решаем его судьбу со СТАРЫМИ флагами
-    const prev = strikeLike ? this.session.onOnset(t, this.expected, this.hasPrevBig ? this.prevBigMags : null, p.checkMinHits) : null;
+    const prev = strikeLike || openSoft ? this.session.onOnset(t, this.expected, this.hasPrevBig ? this.prevBigMags : null, p.checkMinHits) : null;
     if (prev && !prev.allPassed && prev.notes.every((n) => !n.passed) && t - prev.onsetTime < PRECURSOR_SEC) {
       // Окно открыл щелчок пальца о клавишу, а настоящий удар пришёл следом — вердикт предвестника не нужен
       this.drop(prev.onsetTime, `проверка: предвестник удара (щелчок за ${Math.round((t - prev.onsetTime) * 1000)} мс до удара)`, events, this.sessionAttack);
@@ -491,6 +501,7 @@ export class Analyzer {
       this.dropPendingCheck(events); // недоподтверждённый прошлый вердикт — уже не актуален
       this.sessionRef = this.session.reference;
       this.sessionPiano = false;
+      this.sessionSoft = !strikeLike;
       this.sessionNote = null;
       this.sessionAttack = { flux, rmsDb, hfRiseDb };
       this.sessionPeakDb = rmsDb;
@@ -559,6 +570,10 @@ export class Analyzer {
       !res.allPassed &&
       res.notes.every((n) => !n.passed && (!n.evidence || n.evidence.verdict === 'weak' || n.evidence.verdict === 'no-attack' || n.evidence.verdict === 'faint')) &&
       !foreign;
+    if (this.sessionSoft && !res.allPassed) {
+      this.drop(res.onsetTime, `проверка: атака без подъёма ВЧ (+${this.sessionAttack.hfRiseDb.toFixed(1)} дБ) и не засчитана — молча`, events, this.sessionAttack);
+      return;
+    }
     if (nothingNew) {
       this.drop(res.onsetTime, 'проверка: ни одна ожидаемая нота не ударена и посторонней ноты нет (отпускание клавиш?)', events, this.sessionAttack);
       return;

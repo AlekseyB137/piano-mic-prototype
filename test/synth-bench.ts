@@ -317,6 +317,58 @@ for (const c of [
   expect(`Все песни: ${combos.size} сочетаний рук × (обе / только левая / только правая)`, bad.length === 0, bad.join('; '));
 }
 
+// 3д. Живой отчёт 2026-10-22 (К Элизе, лёгкая версия): бас держится, правая рука играет поверх,
+// ожидания меняются, как в «Песне». Звучащие ноты заполняют 2–6 кГц, и подъём ВЧ у настоящего удара
+// всего 0–5 дБ (раньше такой удар отбрасывался целиком), а держащаяся E3 под E4 давала «октаву ниже».
+function sustained(out: Float32Array, at: number, midi: number, gain: number, dur: number, seed: number, decay: number) {
+  const f0 = midiToFreq(midi) * Math.pow(2, (midi > 64 ? (midi - 64) * 0.8 : 0) / 1200);
+  const r = rand(seed);
+  const i0 = Math.floor(at * SR);
+  const n = Math.min(out.length - i0, Math.floor(dur * SR));
+  const ph = Array.from({ length: 12 }, () => r() * Math.PI);
+  for (let i = 0; i < n; i++) {
+    const t = i / SR;
+    let s = 0;
+    for (let h = 1; h <= 12; h++) {
+      const f = h * f0 * Math.sqrt(1 + B * h * h);
+      if (f > SR / 2.2) break;
+      const a = (1 / h) * (h === 1 ? (midi < 48 ? 0.4 : midi < 60 ? 0.5 : 1) : 1);
+      s += a * Math.exp(-t * decay * (1 + 0.4 * h)) * Math.sin(2 * Math.PI * f * t + ph[h - 1]);
+    }
+    const thump = t < 0.01 ? r() * 0.3 * (1 - t / 0.01) : 0;
+    out[i0 + i] += gain * Math.min(1, t / 0.003) * (s * 0.5 + thump);
+  }
+}
+{
+  const steps = [[76], [75], [76], [75], [76], [71], [74], [72], [57, 69], [60], [64], [69], [52, 71], [64], [68], [71], [57, 72], [64], [76], [75], [76]];
+  const bad: string[] = [];
+  for (const [decay, gR, gL, dt] of [[0.5, 0.2, 0.2, 0.6], [0.3, 0.2, 0.25, 0.8], [0.8, 0.15, 0.2, 0.5], [0.3, 0.12, 0.2, 0.7]]) {
+    const sig = new Float32Array(Math.floor((steps.length * dt + 3) * SR));
+    const r = rand(99);
+    for (let i = 0; i < sig.length; i++) sig[i] = 0.002 * r();
+    steps.forEach((st, k) =>
+      st.forEach((m, j) => sustained(sig, 0.3 + k * dt + j * 0.01, m, m < 60 ? gL : gR, m < 60 ? 4 * dt : 2.5 * dt, k * 31 + j, m < 60 ? decay * 0.6 : decay)),
+    );
+    const a = new Analyzer(SR);
+    const pad = new Float32Array(Math.floor(2.3 * SR));
+    const rr = rand(7);
+    for (let i = 0; i < pad.length; i++) pad[i] = 0.002 * rr();
+    a.startCalibration(2);
+    for (let i = 0; i < pad.length; i += 128) a.process(pad.subarray(i, i + 128));
+    let idx = 0;
+    let fails = 0;
+    a.setExpected(steps[0]);
+    for (let i = 0; i < sig.length; i += 128)
+      for (const e of a.process(sig.subarray(i, i + 128))) {
+        if (e.type !== 'check') continue;
+        if (e.allPassed) a.setExpected(steps[++idx] ?? []);
+        else fails++;
+      }
+    if (idx < steps.length || fails > 1) bad.push(`затухание ${decay}, правая ${gR}, бас ${gL}, шаг ${dt} с: пройдено ${idx}/${steps.length}, ✗ ${fails}`);
+  }
+  expect('К Элизе: бас держится, правая рука поверх — все шаги, не больше одного ✗', bad.length === 0, bad.join('; '));
+}
+
 // 4. Затухающая нота не засчитывается повторно; новый удар той же ноты — засчитывается
 {
   const ev = run(render(2.5, [{ at: 0.2, midis: [60] }, { at: 1.4, midis: [60] }]), (a) => a.setExpected([60]));

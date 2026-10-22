@@ -698,7 +698,11 @@ function onEvent(ev: AnalyzerEvent): void {
         }
       }
       const parts = ev.notes.map((n) => {
-        const why = !n.passed && n.evidence ? ` (${VERDICT_TEXT[n.evidence.verdict]})` : '';
+        // У незасчитанной ноты — SNR гармоник ×1…×4 (для разбора отчётов)
+        const why =
+          !n.passed && n.evidence
+            ? ` (${VERDICT_TEXT[n.evidence.verdict]} [${n.evidence.harmonics.map((h) => (Number.isFinite(h.snrDb) ? h.snrDb.toFixed(0) : '–')).join('/')}])`
+            : '';
         const score = n.evidence ? ` ${n.evidence.score.toFixed(0)}дБ` : '';
         return `${midiToName(n.midi)}${n.passed ? '✓' : '✗'}${why}${score}`;
       });
